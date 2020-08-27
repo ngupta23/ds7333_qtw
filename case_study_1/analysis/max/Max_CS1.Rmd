@@ -8,158 +8,125 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 dataLoc = '../../data/'
+library(tidyverse)
+library(ggplot2)
+```
 
-processLine = function(x) {
-  tokens = strsplit(x, "[;=,]")[[1]]
-  if (length(tokens) == 10) return(NULL)
-  tmp = matrix(tokens[ - (1:10) ],ncol= 4, byrow = TRUE)
+# Read Data
+```{r}
+offline= readRDS(file.path(dataLoc,'offline.rds'))
+subMacs = names(sort(table(offline$mac), decreasing = TRUE))[1:7]
 
-  cbind(matrix(tokens[c(2, 4, 6:8, 10)], nrow(tmp), 6,
-               byrow = TRUE), tmp)
+online= readRDS(file.path(dataLoc,'online.rds'))
+
+```
+
+# Exploring
+
+## Signal vs. Angle
+
+```{r}
+library(ggplot2)
+
+p=ggplot(data=filter(offline, mac != "00:0f:a3:39:dd:cd")
+         ,aes(y=signal,x=factor(angle))) +
+  ggplot2::geom_violin()+
+  ggplot2::facet_wrap(vars(mac))
+p
+
+```
+## Density Signal by MAC Angle
+
+```{r fig.height=10, fig.width=10}
+p=ggplot(data=filter(offline, mac != "00:0f:a3:39:dd:cd")
+         ,aes(x=signal) 
+         ) +
+  ggplot2::geom_density()+
+  ggplot2::facet_wrap(vars(mac
+                           ,paste0('Angle:',angle)))
+p
+
+
+```
+
+## SD Signal Strenth by Mean 
+
+```{r}
+byLocAngleAP = with(offline,
+                    by(offline, list(posXY, angle, mac),
+                       function(x) x))
+
+signalSummary =
+  lapply(byLocAngleAP,
+         function(oneLoc) {
+           ans = oneLoc[1, ]
+           ans$medSignal = median(oneLoc$signal)
+           ans$avgSignal = mean(oneLoc$signal)
+           ans$num = length(oneLoc$signal)
+           ans$sdSignal = sd(oneLoc$signal)
+           ans$iqrSignal = IQR(oneLoc$signal)
+           ans
+         })
+offlineSummary = do.call("rbind", signalSummary)
+
+offlineSummary[1:10]
+```
+
+
+```{r}
+breaks = seq(-90, -30, by = 5)
+p=ggplot(data=filter(offlineSummary, mac != "00:0f:a3:39:dd:cd")
+         ,aes(y=sdSignal,x=cut(avgSignal,breaks=breaks)) 
+         ) +
+  ggplot2::geom_boxplot()
+
+  
+p
+```
+## Avg - Med Signal vs obs
+
+```{r}
+
+with(offlineSummary,
+     smoothScatter((avgSignal - medSignal) ~ num,
+                   xlab = "Number of Observations",
+                   ylab = "mean - median"))
+abline(h = 0, col = "#984ea3", lwd = 2)
+
+lo.obj =
+  with(offlineSummary,
+       loess(diff ~ num,
+             data = data.frame(diff = (avgSignal - medSignal),
+                               num = num)))
+
+lo.obj.pr = predict(lo.obj, newdata = data.frame(num = (70:120)))
+lines(x = 70:120, y = lo.obj.pr, col = "#4daf4a", lwd = 2)
+```
+
+## Signal and Distnace
+
+```{r fig.height=8, fig.width=8}
+
+library(fields)
+surfaceSS = function(data, sel_mac, sel_angle = 45) {
+ 
+   oneAPAngle = filter(data, mac ==sel_mac & angle == sel_angle)
+  x=data.frame(as.numeric(oneAPAngle$posX),as.numeric(oneAPAngle$posY))
+  y=oneAPAngle$avgSignal
+  smoothSS = Tps(x,y)
+  vizSmooth = predictSurface(smoothSS)
+  plot.surface(vizSmooth, type = "C")
+  points(oneAPAngle$posX, oneAPAngle$posY, pch=19, cex = 0.5)
 }
 
-```
+parCur = par(mfrow = c(2,2), mar = rep(1.5, 4))
 
-#  Offline Data
+mapply(surfaceSS, 
+       sel_mac = subMacs[ rep(c(5, 1), each = 2) ], 
+       sel_angle = rep(c(0, 135), 2),
+       data = list(data = offlineSummary))
 
-```{r}
-txt = readLines(file.path(dataLoc, "offline.final.trace.txt"))
-lines = txt[ substr(txt, 1, 1) != "#" ]
-tmp = lapply(lines, processLine)
-
-# Convert the offline data to a data frame
-offline = as.data.frame(do.call("rbind", tmp),stringsAsFactors = FALSE)
-# Assign column names to the offline data frame
-names(offline) = c("time", "scanMac", "posX", "posY", "posZ",
-                   "orientation", "mac", "signal",
-                   "channel", "type")
-head(offline)
-# Observe one observation from the offline data frame
-offline[offline$time==1139643118358,]
-```
-
-## Checking Data
-
-```{r}
-
-library(tidyverse)
-library(magrittr)
-
-# View the data frame exclusive of the scanMac, channel, and type columns
-select(offline,-c(scanMac,channel,type))
-
-
-# See if any observations have a posZ-value not equal to 0.0
-offline[offline['posZ']!='0.0',]
-
-```
-
-## Get MACs
-
-```{r}
-#full list of mac values and their types (we are interested in type == 3)
-macTypeDF <- unique(select(offline, c(mac,type)))
-macTypeDF[order(macTypeDF$type),]
-
-# List the unique mac values
-vals = data.frame(table(offline['mac']))
-vals[order(-vals$Freq),]
-
-valsUpdated <- vals %>% inner_join(macTypeDF, by = c("Var1" = "mac"))
-valsUpdated <- valsUpdated[order(valsUpdated$type, -valsUpdated$Freq),]
-
-offline$signal %<>% as.integer
-
-offline <- offline[offline$type != 1, ]
-
-keepMacs <- c('00:0f:a3:39:e1:c0',
-              '00:0f:a3:39:dd:cd',
-              '00:14:bf:b1:97:8a',
-              '00:14:bf:3b:c7:c6',
-              '00:14:bf:b1:97:90',
-              '00:14:bf:b1:97:8d',
-              '00:14:bf:b1:97:81'
-              )
-
-offline <- offline[offline$mac %in% keepMacs ,]
-
-```
-## Make Wider
-```{r}
-
-
-# Pivot the data frame (or cast it; make it wider) but putting the mac values and their associated signals in the columns
-offlineOut = select(offline, -c(channel,scanMac,type)) %>% 
-  pivot_wider(names_from = mac,values_from = signal, values_fn = list(signal=mean))
-
-offlineOut$nas = rowSums(is.na(offlineOut))
-
-# View the final data frame
-offlineOut
-```
-# Online DAta
-
-```{r}
-# Process the online data
-onlineTxt = readLines(file.path(dataLoc,"online.final.trace.txt"))
-
-onlineLines = onlineTxt[ substr(onlineTxt, 1, 1) != "#" ]
-onlineTmp = lapply(onlineLines, processLine)
-
-# Convert the online data to a data frame
-online = as.data.frame(do.call("rbind", onlineTmp),stringsAsFactors = FALSE)
-
-names(online) = c("time", "scanMac", "posX", "posY", "posZ",
-                   "orientation", "mac", "signal",
-                   "channel", "type")
-
-head(online)
-
-# View the data frame exclusive of the scanMac, channel, and type columns
-select(online,-c(scanMac,channel,type))
-```
-## Check Data
-```{r}
-
-# See if any observations have a posZ-value not equal to 0.0
-online[online['posZ']!='0.0',]
-```
-
-## Get MACs
-
-```{r}
-
-
-# List the unique mac values and their frequencies in the offline data frame
-onlineVals = data.frame(table(online['mac']))
-onlineVals[order(-onlineVals$Freq),]
-
-online$signal %<>% as.integer
-
-online <- online[online$mac %in% keepMacs ,]
-```
-## Make Wider
-```{r}
-
-# Pivot the data frame (or cast it; make it wider) but putting the mac values and their associated signals in the columns
-onlineOut<-select(online, -c(channel,scanMac,type)) %>% pivot_wider(names_from = mac,values_from = signal, values_fn = list(signal=mean))
-
-onlineOut$nas<-rowSums(is.na(onlineOut))
-
-# View the final data frame
-head(onlineOut)
-```
-
-## Cehcking Dimension
-```{r}
-
-
-offlineOut$posXY <- paste(offlineOut$posX, offlineOut$posY, sep="-")
-length(unique(offlineOut$posXY))
-
-onlineOut$posXY <- paste(onlineOut$posX, onlineOut$posY, sep="-")
-length(unique(onlineOut$posXY))
-
+par(parCur)
 
 ```
 
