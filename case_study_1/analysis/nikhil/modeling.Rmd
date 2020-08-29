@@ -286,6 +286,7 @@ sapply(list(estXYk1, estXYk3), calcError, actualXY)
 
 ```{r}
 set.seed(42)
+K = 20
 v = 11
 permuteLocs = sample(unique(offline$posXY))
 permuteLocs = matrix(permuteLocs, ncol = v, nrow = floor(length(permuteLocs)/v))
@@ -335,9 +336,7 @@ actualFold = onlineFold[ , c("posX", "posY")]
 calcError(estFold, actualFold)
 ```
 
-```{r}
-K = 10
-```
+
 
 ```{r}
 start = proc.time()

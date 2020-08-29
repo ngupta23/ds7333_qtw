@@ -1,7 +1,7 @@
 EDA
 ================
 Nikhil Gupta
-2020-08-29 06:15:38
+2020-08-29 06:30:48
 
   - [Files](#files)
   - [Functions (Process Raw Data)](#functions-process-raw-data)
@@ -511,6 +511,7 @@ sapply(list(estXYk1, estXYk3), calcError, actualXY)
 
 ``` r
 set.seed(42)
+K = 20
 v = 11
 permuteLocs = sample(unique(offline$posXY))
 permuteLocs = matrix(permuteLocs, ncol = v, nrow = floor(length(permuteLocs)/v))
@@ -1004,10 +1005,6 @@ calcError(estFold, actualFold)
     ## [1] 261.3333
 
 ``` r
-K = 10
-```
-
-``` r
 start = proc.time()
 err_slow = rep(0, K)
 for (j in 1:v) {
@@ -1040,6 +1037,16 @@ for (j in 1:v) {
     ## [1] "    Nearest Neighbors:  8"
     ## [1] "    Nearest Neighbors:  9"
     ## [1] "    Nearest Neighbors:  10"
+    ## [1] "    Nearest Neighbors:  11"
+    ## [1] "    Nearest Neighbors:  12"
+    ## [1] "    Nearest Neighbors:  13"
+    ## [1] "    Nearest Neighbors:  14"
+    ## [1] "    Nearest Neighbors:  15"
+    ## [1] "    Nearest Neighbors:  16"
+    ## [1] "    Nearest Neighbors:  17"
+    ## [1] "    Nearest Neighbors:  18"
+    ## [1] "    Nearest Neighbors:  19"
+    ## [1] "    Nearest Neighbors:  20"
     ## [1] "Running Fold:  2"
     ## [1] "    Nearest Neighbors:  1"
     ## [1] "    Nearest Neighbors:  2"
@@ -1051,6 +1058,16 @@ for (j in 1:v) {
     ## [1] "    Nearest Neighbors:  8"
     ## [1] "    Nearest Neighbors:  9"
     ## [1] "    Nearest Neighbors:  10"
+    ## [1] "    Nearest Neighbors:  11"
+    ## [1] "    Nearest Neighbors:  12"
+    ## [1] "    Nearest Neighbors:  13"
+    ## [1] "    Nearest Neighbors:  14"
+    ## [1] "    Nearest Neighbors:  15"
+    ## [1] "    Nearest Neighbors:  16"
+    ## [1] "    Nearest Neighbors:  17"
+    ## [1] "    Nearest Neighbors:  18"
+    ## [1] "    Nearest Neighbors:  19"
+    ## [1] "    Nearest Neighbors:  20"
     ## [1] "Running Fold:  3"
     ## [1] "    Nearest Neighbors:  1"
     ## [1] "    Nearest Neighbors:  2"
@@ -1062,6 +1079,16 @@ for (j in 1:v) {
     ## [1] "    Nearest Neighbors:  8"
     ## [1] "    Nearest Neighbors:  9"
     ## [1] "    Nearest Neighbors:  10"
+    ## [1] "    Nearest Neighbors:  11"
+    ## [1] "    Nearest Neighbors:  12"
+    ## [1] "    Nearest Neighbors:  13"
+    ## [1] "    Nearest Neighbors:  14"
+    ## [1] "    Nearest Neighbors:  15"
+    ## [1] "    Nearest Neighbors:  16"
+    ## [1] "    Nearest Neighbors:  17"
+    ## [1] "    Nearest Neighbors:  18"
+    ## [1] "    Nearest Neighbors:  19"
+    ## [1] "    Nearest Neighbors:  20"
     ## [1] "Running Fold:  4"
     ## [1] "    Nearest Neighbors:  1"
     ## [1] "    Nearest Neighbors:  2"
@@ -1073,6 +1100,16 @@ for (j in 1:v) {
     ## [1] "    Nearest Neighbors:  8"
     ## [1] "    Nearest Neighbors:  9"
     ## [1] "    Nearest Neighbors:  10"
+    ## [1] "    Nearest Neighbors:  11"
+    ## [1] "    Nearest Neighbors:  12"
+    ## [1] "    Nearest Neighbors:  13"
+    ## [1] "    Nearest Neighbors:  14"
+    ## [1] "    Nearest Neighbors:  15"
+    ## [1] "    Nearest Neighbors:  16"
+    ## [1] "    Nearest Neighbors:  17"
+    ## [1] "    Nearest Neighbors:  18"
+    ## [1] "    Nearest Neighbors:  19"
+    ## [1] "    Nearest Neighbors:  20"
     ## [1] "Running Fold:  5"
     ## [1] "    Nearest Neighbors:  1"
     ## [1] "    Nearest Neighbors:  2"
@@ -1084,6 +1121,16 @@ for (j in 1:v) {
     ## [1] "    Nearest Neighbors:  8"
     ## [1] "    Nearest Neighbors:  9"
     ## [1] "    Nearest Neighbors:  10"
+    ## [1] "    Nearest Neighbors:  11"
+    ## [1] "    Nearest Neighbors:  12"
+    ## [1] "    Nearest Neighbors:  13"
+    ## [1] "    Nearest Neighbors:  14"
+    ## [1] "    Nearest Neighbors:  15"
+    ## [1] "    Nearest Neighbors:  16"
+    ## [1] "    Nearest Neighbors:  17"
+    ## [1] "    Nearest Neighbors:  18"
+    ## [1] "    Nearest Neighbors:  19"
+    ## [1] "    Nearest Neighbors:  20"
     ## [1] "Running Fold:  6"
     ## [1] "    Nearest Neighbors:  1"
     ## [1] "    Nearest Neighbors:  2"
@@ -1095,6 +1142,16 @@ for (j in 1:v) {
     ## [1] "    Nearest Neighbors:  8"
     ## [1] "    Nearest Neighbors:  9"
     ## [1] "    Nearest Neighbors:  10"
+    ## [1] "    Nearest Neighbors:  11"
+    ## [1] "    Nearest Neighbors:  12"
+    ## [1] "    Nearest Neighbors:  13"
+    ## [1] "    Nearest Neighbors:  14"
+    ## [1] "    Nearest Neighbors:  15"
+    ## [1] "    Nearest Neighbors:  16"
+    ## [1] "    Nearest Neighbors:  17"
+    ## [1] "    Nearest Neighbors:  18"
+    ## [1] "    Nearest Neighbors:  19"
+    ## [1] "    Nearest Neighbors:  20"
     ## [1] "Running Fold:  7"
     ## [1] "    Nearest Neighbors:  1"
     ## [1] "    Nearest Neighbors:  2"
@@ -1106,6 +1163,16 @@ for (j in 1:v) {
     ## [1] "    Nearest Neighbors:  8"
     ## [1] "    Nearest Neighbors:  9"
     ## [1] "    Nearest Neighbors:  10"
+    ## [1] "    Nearest Neighbors:  11"
+    ## [1] "    Nearest Neighbors:  12"
+    ## [1] "    Nearest Neighbors:  13"
+    ## [1] "    Nearest Neighbors:  14"
+    ## [1] "    Nearest Neighbors:  15"
+    ## [1] "    Nearest Neighbors:  16"
+    ## [1] "    Nearest Neighbors:  17"
+    ## [1] "    Nearest Neighbors:  18"
+    ## [1] "    Nearest Neighbors:  19"
+    ## [1] "    Nearest Neighbors:  20"
     ## [1] "Running Fold:  8"
     ## [1] "    Nearest Neighbors:  1"
     ## [1] "    Nearest Neighbors:  2"
@@ -1117,6 +1184,16 @@ for (j in 1:v) {
     ## [1] "    Nearest Neighbors:  8"
     ## [1] "    Nearest Neighbors:  9"
     ## [1] "    Nearest Neighbors:  10"
+    ## [1] "    Nearest Neighbors:  11"
+    ## [1] "    Nearest Neighbors:  12"
+    ## [1] "    Nearest Neighbors:  13"
+    ## [1] "    Nearest Neighbors:  14"
+    ## [1] "    Nearest Neighbors:  15"
+    ## [1] "    Nearest Neighbors:  16"
+    ## [1] "    Nearest Neighbors:  17"
+    ## [1] "    Nearest Neighbors:  18"
+    ## [1] "    Nearest Neighbors:  19"
+    ## [1] "    Nearest Neighbors:  20"
     ## [1] "Running Fold:  9"
     ## [1] "    Nearest Neighbors:  1"
     ## [1] "    Nearest Neighbors:  2"
@@ -1128,6 +1205,16 @@ for (j in 1:v) {
     ## [1] "    Nearest Neighbors:  8"
     ## [1] "    Nearest Neighbors:  9"
     ## [1] "    Nearest Neighbors:  10"
+    ## [1] "    Nearest Neighbors:  11"
+    ## [1] "    Nearest Neighbors:  12"
+    ## [1] "    Nearest Neighbors:  13"
+    ## [1] "    Nearest Neighbors:  14"
+    ## [1] "    Nearest Neighbors:  15"
+    ## [1] "    Nearest Neighbors:  16"
+    ## [1] "    Nearest Neighbors:  17"
+    ## [1] "    Nearest Neighbors:  18"
+    ## [1] "    Nearest Neighbors:  19"
+    ## [1] "    Nearest Neighbors:  20"
     ## [1] "Running Fold:  10"
     ## [1] "    Nearest Neighbors:  1"
     ## [1] "    Nearest Neighbors:  2"
@@ -1139,6 +1226,16 @@ for (j in 1:v) {
     ## [1] "    Nearest Neighbors:  8"
     ## [1] "    Nearest Neighbors:  9"
     ## [1] "    Nearest Neighbors:  10"
+    ## [1] "    Nearest Neighbors:  11"
+    ## [1] "    Nearest Neighbors:  12"
+    ## [1] "    Nearest Neighbors:  13"
+    ## [1] "    Nearest Neighbors:  14"
+    ## [1] "    Nearest Neighbors:  15"
+    ## [1] "    Nearest Neighbors:  16"
+    ## [1] "    Nearest Neighbors:  17"
+    ## [1] "    Nearest Neighbors:  18"
+    ## [1] "    Nearest Neighbors:  19"
+    ## [1] "    Nearest Neighbors:  20"
     ## [1] "Running Fold:  11"
     ## [1] "    Nearest Neighbors:  1"
     ## [1] "    Nearest Neighbors:  2"
@@ -1150,6 +1247,16 @@ for (j in 1:v) {
     ## [1] "    Nearest Neighbors:  8"
     ## [1] "    Nearest Neighbors:  9"
     ## [1] "    Nearest Neighbors:  10"
+    ## [1] "    Nearest Neighbors:  11"
+    ## [1] "    Nearest Neighbors:  12"
+    ## [1] "    Nearest Neighbors:  13"
+    ## [1] "    Nearest Neighbors:  14"
+    ## [1] "    Nearest Neighbors:  15"
+    ## [1] "    Nearest Neighbors:  16"
+    ## [1] "    Nearest Neighbors:  17"
+    ## [1] "    Nearest Neighbors:  18"
+    ## [1] "    Nearest Neighbors:  19"
+    ## [1] "    Nearest Neighbors:  20"
 
 ``` r
 stop = proc.time()
@@ -1158,20 +1265,21 @@ print(diff)
 ```
 
     ##    user  system elapsed 
-    ##  306.77    0.12  307.00
+    ##  625.84    0.41  627.16
 
 ``` r
 err_slow
 ```
 
     ##  [1] 1497.000 1385.750 1333.889 1257.062 1183.280 1169.306 1166.694 1162.453
-    ##  [9] 1162.247 1192.290
+    ##  [9] 1162.247 1192.290 1202.810 1223.208 1233.408 1283.439 1316.849 1356.441
+    ## [17] 1409.398 1463.213 1513.878 1570.290
 
 ``` r
 plot(err_slow)
 ```
 
-![](modeling_files/figure-gfm/unnamed-chunk-26-1.png)<!-- -->
+![](modeling_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
 
 # Faster K Fold
 
@@ -1250,20 +1358,21 @@ print(diff)
 ```
 
     ##    user  system elapsed 
-    ##   32.86    0.07   32.95
+    ##   33.98    0.09   34.08
 
 ``` r
 err
 ```
 
     ##  [1] 1497.000 1385.750 1333.889 1257.062 1183.280 1169.306 1166.694 1162.453
-    ##  [9] 1162.247 1192.290
+    ##  [9] 1162.247 1192.290 1202.810 1223.208 1233.408 1283.439 1316.849 1356.441
+    ## [17] 1409.398 1463.213 1513.878 1570.290
 
 ``` r
 plot(err)
 ```
 
-![](modeling_files/figure-gfm/unnamed-chunk-29-1.png)<!-- -->
+![](modeling_files/figure-gfm/unnamed-chunk-28-1.png)<!-- -->
 
 ``` r
 identical(err, err_slow)
