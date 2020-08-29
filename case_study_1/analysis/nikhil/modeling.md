@@ -1,7 +1,7 @@
 EDA
 ================
 Nikhil Gupta
-2020-08-29 06:30:48
+2020-08-29 14:53:15
 
   - [Files](#files)
   - [Functions (Process Raw Data)](#functions-process-raw-data)
@@ -10,24 +10,29 @@ Nikhil Gupta
   - [Function (Reshape)](#function-reshape)
   - [Reshape Test Data](#reshape-test-data)
   - [Function (Select Train Data)](#function-select-train-data)
-  - [Functions (Nearest Neighbors)](#functions-nearest-neighbors)
   - [Nearest Neighbors](#nearest-neighbors)
+      - [Common Functions](#common-functions)
+      - [Unweighted](#unweighted)
+      - [Weighted](#weighted)
   - [K-Fold](#k-fold)
-  - [Faster K Fold](#faster-k-fold)
-  - [Final Model](#final-model)
+      - [Setup](#setup)
+      - [Slower Cross Validation](#slower-cross-validation)
+      - [Faster Cross Validation](#faster-cross-validation)
+          - [Unweighted](#unweighted-1)
+          - [Weighted](#weighted-1)
 
 ``` r
 library(tidyverse)
 ```
 
-    ## -- Attaching packages ------------------------------------------------------------------------------------------------------------- tidyverse 1.3.0 --
+    ## -- Attaching packages ------------------------------------------------------------------------------------------------------------------ tidyverse 1.3.0 --
 
     ## v ggplot2 3.3.0     v purrr   0.3.4
     ## v tibble  3.0.0     v dplyr   0.8.5
     ## v tidyr   1.0.2     v stringr 1.4.0
     ## v readr   1.3.1     v forcats 0.5.0
 
-    ## -- Conflicts ---------------------------------------------------------------------------------------------------------------- tidyverse_conflicts() --
+    ## -- Conflicts --------------------------------------------------------------------------------------------------------------------- tidyverse_conflicts() --
     ## x dplyr::filter() masks stats::filter()
     ## x dplyr::lag()    masks stats::lag()
 
@@ -435,50 +440,103 @@ selectTrain = function(angleNewObs, train_data, m){
   angles[angles < 0] = angles[ angles < 0 ] + 360
   angles[angles > 360] = angles[ angles > 360 ] - 360
   
-  # print(paste("Angles Chosen = ", paste(angles, collapse=", "), sep = ""))
-  
   # Subset only those angles from original data (tall-skinny)
   train_data_subset = train_data[train_data$angle %in% angles, ]
   
-  # Convert to Wide and average 
-  #train_data_subset = tall2wide(data = train_data_subset)
+  # Convert to Wide and average the data for the same positions 
   train_data_subset = reshapeSS(data = train_data_subset, varSignal = "signal")
-  
   
   return(train_data_subset)
 }
 ```
 
-# Functions (Nearest Neighbors)
+# Nearest Neighbors
+
+## Common Functions
 
 ``` r
-findNN = function(newSignal, trainSubset) {
+#' @description Computes the distance of the new signal (single observation) to each observation in the training dataset
+#' @param newSignals The Signal Values for the validation data for each observation
+#' @param trainSubset The training data to be used
+#' @param weighted Whether the mean value should be weighted based on distancde or not.
+#' @return A dataframe containing same number of rows as that in the training data.
+#'         The observations are ordered by the distance to the new signal. Each row contains 5 columns. 
+#'         1st column is the XY location of the training observation (string)
+#'         2nd column is the X location of the training observation (float)
+#'         3rd column is the Y location of the training observation (float)
+#'         4th column is the distance to the point under consideration to the training observation (float)
+#'         5th column is the inverse distance or weight (float). Weight is hard coded to 1 for all observations if weighted = FALSE
+findNN = function(newSignal, trainSubset, weighted=FALSE) {
   diffs = apply(trainSubset[ , 4:9], 1, function(x) x - newSignal)
   dists = apply(diffs, 2, function(x) sqrt(sum(x^2)) )
   closest = order(dists)
-  return(trainSubset[closest, 1:3])
+  
+  ordered_dist = dists[closest]
+  if(weighted == TRUE){
+    weight = 1/ordered_dist
+  }
+  if(weighted == FALSE){
+    weight = rep(1, length(dists))
+  }
+  return(cbind(trainSubset[closest, 1:3], ordered_dist, weight))
 }
+```
 
-predXY = function(newSignals, newAngles, trainData, numAngles = 1, k = 3){
+``` r
+#' @description XY Prediction for a single value of k (num neighbors)
+#' @param newSignals The Signal Values for the validation data for each observation
+#' @param newAngles The Orientation of the validation data for each observation
+#' @param trainData The training data to be used
+#' @param numAngles Number of closest reference angles to include in the data
+#' @param k Perform the predicton for num neighbors = k
+#' @param weighted Whether the mean value should be weighted based on distancde or not.
+#' @return A dataframe with num rows = number of (validation) observations and num columns = 2
+#'         Each row indicates the prediction of the mean X and Y values for that observation
+predXY = function(newSignals, newAngles, trainData, numAngles = 1, k = 3, weighted=FALSE){
   closeXY = list(length = nrow(newSignals))
   for (i in 1:nrow(newSignals)) {
     trainSS = selectTrain(newAngles[i], trainData, m = numAngles)
     closeXY[[i]] = findNN(
       newSignal = as.numeric(newSignals[i, ]),
-      trainSubset = trainSS
+      trainSubset = trainSS,
+      weighted = weighted
     )
   }
-  estXY = lapply(closeXY, function(x) sapply(x[ , 2:3], function(x) mean(x[1:k])))
+  
+  #' @description Returns the (un)weighted mean X and Y locations for a single observation and single value of neighbors
+  #' @param x Dataframe containing 5 columns 
+  #' 1st column is the XY location (string)
+  #' 2nd column is the X location (float)
+  #' 3rd column is the Y location (float)
+  #' 4th column is the distance to the point under consideration (float)
+  #' 5th column is the inverse distance or weight (float)
+  #' @param k Number of nearest neighbors to use
+  #' @return A pair of XY mean values for k number of neighbors
+  k_means_single_obs = function(x, k){
+    weights = x[1:k, 5]
+    weighted_x = sum(x[1:k, 2] * weights) / sum(weights)
+    weighted_y = sum(x[1:k, 3] * weights) / sum(weights)
+    return(c(weighted_x, weighted_y))
+  }
+  
+  # estXY = lapply(closeXY, function(x) sapply(x[ , 2:3], function(x) mean(x[1:k])))
+  estXY = lapply(closeXY, k_means_single_obs, k)
   estXY = do.call("rbind", estXY)
   return(estXY)
 }
+```
 
+``` r
 calcError = function(estXY, actualXY){
   return(sum(rowSums((estXY - actualXY)^2)))
 }
 ```
 
-# Nearest Neighbors
+## Unweighted
+
+``` r
+weighted = FALSE
+```
 
 ``` r
 estXYk3 = predXY(
@@ -486,7 +544,8 @@ estXYk3 = predXY(
   newAngles = onlineSummary$angle, 
   trainData = offline,
   numAngles = 3,
-  k = 3
+  k = 3,
+  weighted = weighted
 )
 ```
 
@@ -496,7 +555,8 @@ estXYk1 = predXY(
   newAngles = onlineSummary$angle, 
   trainData = offline,
   numAngles = 3,
-  k = 1
+  k = 1,
+  weighted = weighted
 )
 ```
 
@@ -507,7 +567,44 @@ sapply(list(estXYk1, estXYk3), calcError, actualXY)
 
     ## [1] 658.0203 313.3359
 
+## Weighted
+
+``` r
+weighted = TRUE
+```
+
+``` r
+estXYk3_weighted = predXY(
+  newSignals = onlineSummary[ , 6:11],
+  newAngles = onlineSummary$angle, 
+  trainData = offline,
+  numAngles = 3,
+  k = 3,
+  weighted = weighted
+)
+```
+
+``` r
+estXYk1_weighted = predXY(
+  newSignals = onlineSummary[ , 6:11],
+  newAngles = onlineSummary$angle, 
+  trainData = offline,
+  numAngles = 3,
+  k = 1,
+  weighted = weighted
+)
+```
+
+``` r
+actualXY = onlineSummary %>%  dplyr::select(posX, posY)
+sapply(list(estXYk1_weighted, estXYk3_weighted), calcError, actualXY)
+```
+
+    ## [1] 658.0203 308.5297
+
 # K-Fold
+
+## Setup
 
 ``` r
 set.seed(42)
@@ -1004,339 +1101,159 @@ calcError(estFold, actualFold)
 
     ## [1] 261.3333
 
+## Slower Cross Validation
+
 ``` r
-start = proc.time()
-err_slow = rep(0, K)
-for (j in 1:v) {
-  print(paste("Running Fold: ", j))
-  onlineFold = subset(onlineCVSummary, posXY %in% permuteLocs[ , j])
-  offlineFold = subset(offline, posXY %in% permuteLocs[ , -j])
-  actualFold = onlineFold[ , c("posX", "posY")]
-  for (k in 1:K) {
-    print(paste("    Nearest Neighbors: ", k))
-    estFold = predXY(
-      newSignals = onlineFold[ , 6:11],
-      newAngles = onlineFold[ , 4],
-      offlineFold,
-      numAngles = 3,
-      k = k
-    )
-    err_slow[k] = err_slow[k] + calcError(estFold, actualFold)
-  }
-}
+# start = proc.time()
+# err_slow = rep(0, K)
+# for (j in 1:v) {
+#   print(paste("Running Fold: ", j))
+#   onlineFold = subset(onlineCVSummary, posXY %in% permuteLocs[ , j])
+#   offlineFold = subset(offline, posXY %in% permuteLocs[ , -j])
+#   actualFold = onlineFold[ , c("posX", "posY")]
+#   for (k in 1:K) {
+#     print(paste("    Nearest Neighbors: ", k))
+#     estFold = predXY(
+#       newSignals = onlineFold[ , 6:11],
+#       newAngles = onlineFold[ , 4],
+#       offlineFold,
+#       numAngles = 3,
+#       k = k
+#     )
+#     err_slow[k] = err_slow[k] + calcError(estFold, actualFold)
+#   }
+# }
+# stop = proc.time()
+# diff = stop-start
+# print(diff)
 ```
 
-    ## [1] "Running Fold:  1"
-    ## [1] "    Nearest Neighbors:  1"
-    ## [1] "    Nearest Neighbors:  2"
-    ## [1] "    Nearest Neighbors:  3"
-    ## [1] "    Nearest Neighbors:  4"
-    ## [1] "    Nearest Neighbors:  5"
-    ## [1] "    Nearest Neighbors:  6"
-    ## [1] "    Nearest Neighbors:  7"
-    ## [1] "    Nearest Neighbors:  8"
-    ## [1] "    Nearest Neighbors:  9"
-    ## [1] "    Nearest Neighbors:  10"
-    ## [1] "    Nearest Neighbors:  11"
-    ## [1] "    Nearest Neighbors:  12"
-    ## [1] "    Nearest Neighbors:  13"
-    ## [1] "    Nearest Neighbors:  14"
-    ## [1] "    Nearest Neighbors:  15"
-    ## [1] "    Nearest Neighbors:  16"
-    ## [1] "    Nearest Neighbors:  17"
-    ## [1] "    Nearest Neighbors:  18"
-    ## [1] "    Nearest Neighbors:  19"
-    ## [1] "    Nearest Neighbors:  20"
-    ## [1] "Running Fold:  2"
-    ## [1] "    Nearest Neighbors:  1"
-    ## [1] "    Nearest Neighbors:  2"
-    ## [1] "    Nearest Neighbors:  3"
-    ## [1] "    Nearest Neighbors:  4"
-    ## [1] "    Nearest Neighbors:  5"
-    ## [1] "    Nearest Neighbors:  6"
-    ## [1] "    Nearest Neighbors:  7"
-    ## [1] "    Nearest Neighbors:  8"
-    ## [1] "    Nearest Neighbors:  9"
-    ## [1] "    Nearest Neighbors:  10"
-    ## [1] "    Nearest Neighbors:  11"
-    ## [1] "    Nearest Neighbors:  12"
-    ## [1] "    Nearest Neighbors:  13"
-    ## [1] "    Nearest Neighbors:  14"
-    ## [1] "    Nearest Neighbors:  15"
-    ## [1] "    Nearest Neighbors:  16"
-    ## [1] "    Nearest Neighbors:  17"
-    ## [1] "    Nearest Neighbors:  18"
-    ## [1] "    Nearest Neighbors:  19"
-    ## [1] "    Nearest Neighbors:  20"
-    ## [1] "Running Fold:  3"
-    ## [1] "    Nearest Neighbors:  1"
-    ## [1] "    Nearest Neighbors:  2"
-    ## [1] "    Nearest Neighbors:  3"
-    ## [1] "    Nearest Neighbors:  4"
-    ## [1] "    Nearest Neighbors:  5"
-    ## [1] "    Nearest Neighbors:  6"
-    ## [1] "    Nearest Neighbors:  7"
-    ## [1] "    Nearest Neighbors:  8"
-    ## [1] "    Nearest Neighbors:  9"
-    ## [1] "    Nearest Neighbors:  10"
-    ## [1] "    Nearest Neighbors:  11"
-    ## [1] "    Nearest Neighbors:  12"
-    ## [1] "    Nearest Neighbors:  13"
-    ## [1] "    Nearest Neighbors:  14"
-    ## [1] "    Nearest Neighbors:  15"
-    ## [1] "    Nearest Neighbors:  16"
-    ## [1] "    Nearest Neighbors:  17"
-    ## [1] "    Nearest Neighbors:  18"
-    ## [1] "    Nearest Neighbors:  19"
-    ## [1] "    Nearest Neighbors:  20"
-    ## [1] "Running Fold:  4"
-    ## [1] "    Nearest Neighbors:  1"
-    ## [1] "    Nearest Neighbors:  2"
-    ## [1] "    Nearest Neighbors:  3"
-    ## [1] "    Nearest Neighbors:  4"
-    ## [1] "    Nearest Neighbors:  5"
-    ## [1] "    Nearest Neighbors:  6"
-    ## [1] "    Nearest Neighbors:  7"
-    ## [1] "    Nearest Neighbors:  8"
-    ## [1] "    Nearest Neighbors:  9"
-    ## [1] "    Nearest Neighbors:  10"
-    ## [1] "    Nearest Neighbors:  11"
-    ## [1] "    Nearest Neighbors:  12"
-    ## [1] "    Nearest Neighbors:  13"
-    ## [1] "    Nearest Neighbors:  14"
-    ## [1] "    Nearest Neighbors:  15"
-    ## [1] "    Nearest Neighbors:  16"
-    ## [1] "    Nearest Neighbors:  17"
-    ## [1] "    Nearest Neighbors:  18"
-    ## [1] "    Nearest Neighbors:  19"
-    ## [1] "    Nearest Neighbors:  20"
-    ## [1] "Running Fold:  5"
-    ## [1] "    Nearest Neighbors:  1"
-    ## [1] "    Nearest Neighbors:  2"
-    ## [1] "    Nearest Neighbors:  3"
-    ## [1] "    Nearest Neighbors:  4"
-    ## [1] "    Nearest Neighbors:  5"
-    ## [1] "    Nearest Neighbors:  6"
-    ## [1] "    Nearest Neighbors:  7"
-    ## [1] "    Nearest Neighbors:  8"
-    ## [1] "    Nearest Neighbors:  9"
-    ## [1] "    Nearest Neighbors:  10"
-    ## [1] "    Nearest Neighbors:  11"
-    ## [1] "    Nearest Neighbors:  12"
-    ## [1] "    Nearest Neighbors:  13"
-    ## [1] "    Nearest Neighbors:  14"
-    ## [1] "    Nearest Neighbors:  15"
-    ## [1] "    Nearest Neighbors:  16"
-    ## [1] "    Nearest Neighbors:  17"
-    ## [1] "    Nearest Neighbors:  18"
-    ## [1] "    Nearest Neighbors:  19"
-    ## [1] "    Nearest Neighbors:  20"
-    ## [1] "Running Fold:  6"
-    ## [1] "    Nearest Neighbors:  1"
-    ## [1] "    Nearest Neighbors:  2"
-    ## [1] "    Nearest Neighbors:  3"
-    ## [1] "    Nearest Neighbors:  4"
-    ## [1] "    Nearest Neighbors:  5"
-    ## [1] "    Nearest Neighbors:  6"
-    ## [1] "    Nearest Neighbors:  7"
-    ## [1] "    Nearest Neighbors:  8"
-    ## [1] "    Nearest Neighbors:  9"
-    ## [1] "    Nearest Neighbors:  10"
-    ## [1] "    Nearest Neighbors:  11"
-    ## [1] "    Nearest Neighbors:  12"
-    ## [1] "    Nearest Neighbors:  13"
-    ## [1] "    Nearest Neighbors:  14"
-    ## [1] "    Nearest Neighbors:  15"
-    ## [1] "    Nearest Neighbors:  16"
-    ## [1] "    Nearest Neighbors:  17"
-    ## [1] "    Nearest Neighbors:  18"
-    ## [1] "    Nearest Neighbors:  19"
-    ## [1] "    Nearest Neighbors:  20"
-    ## [1] "Running Fold:  7"
-    ## [1] "    Nearest Neighbors:  1"
-    ## [1] "    Nearest Neighbors:  2"
-    ## [1] "    Nearest Neighbors:  3"
-    ## [1] "    Nearest Neighbors:  4"
-    ## [1] "    Nearest Neighbors:  5"
-    ## [1] "    Nearest Neighbors:  6"
-    ## [1] "    Nearest Neighbors:  7"
-    ## [1] "    Nearest Neighbors:  8"
-    ## [1] "    Nearest Neighbors:  9"
-    ## [1] "    Nearest Neighbors:  10"
-    ## [1] "    Nearest Neighbors:  11"
-    ## [1] "    Nearest Neighbors:  12"
-    ## [1] "    Nearest Neighbors:  13"
-    ## [1] "    Nearest Neighbors:  14"
-    ## [1] "    Nearest Neighbors:  15"
-    ## [1] "    Nearest Neighbors:  16"
-    ## [1] "    Nearest Neighbors:  17"
-    ## [1] "    Nearest Neighbors:  18"
-    ## [1] "    Nearest Neighbors:  19"
-    ## [1] "    Nearest Neighbors:  20"
-    ## [1] "Running Fold:  8"
-    ## [1] "    Nearest Neighbors:  1"
-    ## [1] "    Nearest Neighbors:  2"
-    ## [1] "    Nearest Neighbors:  3"
-    ## [1] "    Nearest Neighbors:  4"
-    ## [1] "    Nearest Neighbors:  5"
-    ## [1] "    Nearest Neighbors:  6"
-    ## [1] "    Nearest Neighbors:  7"
-    ## [1] "    Nearest Neighbors:  8"
-    ## [1] "    Nearest Neighbors:  9"
-    ## [1] "    Nearest Neighbors:  10"
-    ## [1] "    Nearest Neighbors:  11"
-    ## [1] "    Nearest Neighbors:  12"
-    ## [1] "    Nearest Neighbors:  13"
-    ## [1] "    Nearest Neighbors:  14"
-    ## [1] "    Nearest Neighbors:  15"
-    ## [1] "    Nearest Neighbors:  16"
-    ## [1] "    Nearest Neighbors:  17"
-    ## [1] "    Nearest Neighbors:  18"
-    ## [1] "    Nearest Neighbors:  19"
-    ## [1] "    Nearest Neighbors:  20"
-    ## [1] "Running Fold:  9"
-    ## [1] "    Nearest Neighbors:  1"
-    ## [1] "    Nearest Neighbors:  2"
-    ## [1] "    Nearest Neighbors:  3"
-    ## [1] "    Nearest Neighbors:  4"
-    ## [1] "    Nearest Neighbors:  5"
-    ## [1] "    Nearest Neighbors:  6"
-    ## [1] "    Nearest Neighbors:  7"
-    ## [1] "    Nearest Neighbors:  8"
-    ## [1] "    Nearest Neighbors:  9"
-    ## [1] "    Nearest Neighbors:  10"
-    ## [1] "    Nearest Neighbors:  11"
-    ## [1] "    Nearest Neighbors:  12"
-    ## [1] "    Nearest Neighbors:  13"
-    ## [1] "    Nearest Neighbors:  14"
-    ## [1] "    Nearest Neighbors:  15"
-    ## [1] "    Nearest Neighbors:  16"
-    ## [1] "    Nearest Neighbors:  17"
-    ## [1] "    Nearest Neighbors:  18"
-    ## [1] "    Nearest Neighbors:  19"
-    ## [1] "    Nearest Neighbors:  20"
-    ## [1] "Running Fold:  10"
-    ## [1] "    Nearest Neighbors:  1"
-    ## [1] "    Nearest Neighbors:  2"
-    ## [1] "    Nearest Neighbors:  3"
-    ## [1] "    Nearest Neighbors:  4"
-    ## [1] "    Nearest Neighbors:  5"
-    ## [1] "    Nearest Neighbors:  6"
-    ## [1] "    Nearest Neighbors:  7"
-    ## [1] "    Nearest Neighbors:  8"
-    ## [1] "    Nearest Neighbors:  9"
-    ## [1] "    Nearest Neighbors:  10"
-    ## [1] "    Nearest Neighbors:  11"
-    ## [1] "    Nearest Neighbors:  12"
-    ## [1] "    Nearest Neighbors:  13"
-    ## [1] "    Nearest Neighbors:  14"
-    ## [1] "    Nearest Neighbors:  15"
-    ## [1] "    Nearest Neighbors:  16"
-    ## [1] "    Nearest Neighbors:  17"
-    ## [1] "    Nearest Neighbors:  18"
-    ## [1] "    Nearest Neighbors:  19"
-    ## [1] "    Nearest Neighbors:  20"
-    ## [1] "Running Fold:  11"
-    ## [1] "    Nearest Neighbors:  1"
-    ## [1] "    Nearest Neighbors:  2"
-    ## [1] "    Nearest Neighbors:  3"
-    ## [1] "    Nearest Neighbors:  4"
-    ## [1] "    Nearest Neighbors:  5"
-    ## [1] "    Nearest Neighbors:  6"
-    ## [1] "    Nearest Neighbors:  7"
-    ## [1] "    Nearest Neighbors:  8"
-    ## [1] "    Nearest Neighbors:  9"
-    ## [1] "    Nearest Neighbors:  10"
-    ## [1] "    Nearest Neighbors:  11"
-    ## [1] "    Nearest Neighbors:  12"
-    ## [1] "    Nearest Neighbors:  13"
-    ## [1] "    Nearest Neighbors:  14"
-    ## [1] "    Nearest Neighbors:  15"
-    ## [1] "    Nearest Neighbors:  16"
-    ## [1] "    Nearest Neighbors:  17"
-    ## [1] "    Nearest Neighbors:  18"
-    ## [1] "    Nearest Neighbors:  19"
-    ## [1] "    Nearest Neighbors:  20"
-
 ``` r
-stop = proc.time()
-diff = stop-start
-print(diff)
+# err_slow
+# plot(err_slow)
 ```
 
-    ##    user  system elapsed 
-    ##  625.84    0.41  627.16
+## Faster Cross Validation
 
 ``` r
-err_slow
-```
-
-    ##  [1] 1497.000 1385.750 1333.889 1257.062 1183.280 1169.306 1166.694 1162.453
-    ##  [9] 1162.247 1192.290 1202.810 1223.208 1233.408 1283.439 1316.849 1356.441
-    ## [17] 1409.398 1463.213 1513.878 1570.290
-
-``` r
-plot(err_slow)
-```
-
-![](modeling_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
-
-# Faster K Fold
-
-``` r
-# Modified to help with faster CV
-predXYCV = function(newSignals, newAngles, trainData, numAngles = 1, K = 10){
+#' @description Modified XY Prediction to help with faster CV for all K values at once (from 1 to K)
+#' @param newSignals The Signal Values for the validation data for each observation
+#' @param newAngles The Orientation of the validation data for each observation
+#' @param trainData The training data to be used
+#' @param numAngles Number of closest reference angles to include in the data
+#' @param K Perform the prediction for num neighbors from 1 to K
+#' @param weighted Whether the mean value should be weighted based on distancde or not.
+#' @return A nested dataframe with num rows = number of (validation) observations and num columns = number of folds
+#'         Each entry in this dataframe is a vector of 2 values
+#'         indicating the prediction of the mean X and Y values for that obs and num neighbors
+predXYallK = function(newSignals, newAngles, trainData, numAngles = 1, K = 10, weighted=FALSE){
   closeXY = list(length = nrow(newSignals))
   for (i in 1:nrow(newSignals)) {
     trainSS = selectTrain(newAngles[i], trainData, m = numAngles)
     closeXY[[i]] = findNN(
       newSignal = as.numeric(newSignals[i, ]),
-      trainSubset = trainSS
+      trainSubset = trainSS,
+      weighted = weighted
     )
   }
   
-  all_K_means_single_obs = function(x){
+  #' @description Returns the (un)weighted mean X and Y locations for a single observation and multiple neighor values
+  #' @param x Dataframe containing 5 columns 
+  #' 1st column is the XY location (string)
+  #' 2nd column is the X location (float)
+  #' 3rd column is the Y location (float)
+  #' 4th column is the distance to the point under consideration (float)
+  #' 5th column is the inverse distance or weight (float)
+  #' @param K Number of nearest neighbors to use
+  #' @return A list of K pairs (each pair is a XY mean value for a single k)
+  all_K_means_single_obs = function(x, K){
     # Row will contain the K mean values for k = 1 to K
-    row = rep(0, K)
-    for(k in 1:K){
-      row[k] = mean(x[1:k])
+    rows = list()
+    for(k in seq(1, K)){
+      rows[[k]] = k_means_single_obs(x, k)
     }
-    return(row)
+    return(rows)
+  }
+  
+  #' @description Returns the (un)weighted mean X and Y locations for a single observation and single value of neighbors
+  #' @param x Dataframe containing 5 columns 
+  #' 1st column is the XY location (string)
+  #' 2nd column is the X location (float)
+  #' 3rd column is the Y location (float)
+  #' 4th column is the distance to the point under consideration (float)
+  #' 5th column is the inverse distance or weight (float)
+  #' @param k Number of nearest neighbors to use
+  #' @return A pair of XY mean values for k number of neighbors
+  k_means_single_obs = function(x, k){
+    weights = x[1:k, 5]
+    weighted_x = sum(x[1:k, 2] * weights) / sum(weights)
+    weighted_y = sum(x[1:k, 3] * weights) / sum(weights)
+    return(c(weighted_x, weighted_y))
   }
   
   # estXY = lapply(closeXY, function(x) sapply(x[ , 2:3], function(x) mean(x[1:k])))
-  estXY = lapply(closeXY, function(x) sapply(x[ , 2:3], all_K_means_single_obs))
-
+  estXY = lapply(closeXY, all_K_means_single_obs, K)
+  estXY = do.call("rbind", estXY)
   return(estXY)
 }
 ```
 
 ``` r
-start = proc.time()
-err = rep(0, K)
-for (j in 1:v) {
-  print(paste("Running Fold: ", j))
-  onlineFold = subset(onlineCVSummary, posXY %in% permuteLocs[ , j])
-  offlineFold = subset(offline, posXY %in% permuteLocs[ , -j])
-  actualFold = onlineFold[ , c("posX", "posY")]
-  
-  estFold = predXYCV(
-      newSignals = onlineFold[ , 6:11],
-      newAngles = onlineFold[ , 4],
-      offlineFold,
-      numAngles = 3,
-      K = K
-    )
-  
-  # Reformat into correct format for each 'k' value
-  for(k in 1:K){ 
-    estSingleK = data.frame()
-    for(i in 1:length(estFold)){
-      estSingleK = rbind(estSingleK, estFold[[i]][k, ])
+#' @description Returns the (un)weighted mean X and Y locations for a single observation and multiple neighor values
+#' @param K Number of nearest neighbors to use (Will run Grid Search over all values from k = 1 to K)
+#' @param v Number of folds to use
+#' @param offline Use "as is" from script for now
+#' @param onlineCVSummary Use "as is" from script for now
+#' @param folds A matrix with rows = number of observations in each fold and columns = number of folds.
+#'              The values are the XY IDs to be included in that fold
+#' @param numAngles Number of closest reference angles to include in the data
+#' @param weighted Whether the mean value should be weighted based on distancde or not.
+#' @return A vector of K values indicating the Error for each value of k from 1 to K
+run_kfold = function(K, v, offline, onlineCVSummary, folds, numAngles, weighted=FALSE){
+  err = rep(0, K)
+  for (j in 1:v) {
+    print(paste("Running Fold: ", j))
+    onlineFold = subset(onlineCVSummary, posXY %in% folds[ , j])
+    offlineFold = subset(offline, posXY %in% folds[ , -j])
+    actualFold = onlineFold[ , c("posX", "posY")]
+    
+    estFold = predXYallK(
+        newSignals = onlineFold[ , 6:11],
+        newAngles = onlineFold[ , 4],
+        trainData = offlineFold,
+        numAngles = numAngles,
+        K = K,
+        weighted=weighted
+      )
+    
+    # Reformat into correct format for each 'k' value
+    for(k in 1:K){ 
+      estSingleK = data.frame()
+      for(i in seq(1, length(estFold)/K)){  # i = NUmber of the observtion
+        estSingleK = rbind(estSingleK, t(as.data.frame(estFold[i,k])))
+      }
+      err[k] = err[k] + calcError(estSingleK, actualFold)
     }
-    err[k] = err[k] + calcError(estSingleK, actualFold)
-  }
+  } 
+  return(err)
 }
+```
+
+### Unweighted
+
+``` r
+weighted = FALSE
+
+start = proc.time()
+err = run_kfold(
+  K = K,
+  v = v,
+  offline = offline,
+  onlineCVSummary = onlineCVSummary,
+  folds = permuteLocs,
+  numAngles = 3,
+  weighted = weighted
+)
 ```
 
     ## [1] "Running Fold:  1"
@@ -1358,7 +1275,7 @@ print(diff)
 ```
 
     ##    user  system elapsed 
-    ##   33.98    0.09   34.08
+    ##   35.24    0.32   35.56
 
 ``` r
 err
@@ -1372,15 +1289,9 @@ err
 plot(err)
 ```
 
-![](modeling_files/figure-gfm/unnamed-chunk-28-1.png)<!-- -->
+![](modeling_files/figure-gfm/unnamed-chunk-36-1.png)<!-- -->
 
-``` r
-identical(err, err_slow)
-```
-
-    ## [1] TRUE
-
-# Final Model
+**Final Model**
 
 ``` r
 finalK = which.min(err)
@@ -1395,9 +1306,85 @@ estXYfinalK = predXY(
   newAngles = onlineSummary[ , 4],
   trainData = offline,
   numAngles = 3,
-  k = finalK
+  k = finalK,
+  weighted = weighted
 )
 calcError(estXYfinalK, actualXY)
 ```
 
     ## [1] 291.4988
+
+### Weighted
+
+``` r
+weighted = TRUE
+
+start = proc.time()
+err = run_kfold(
+  K = K,
+  v = v,
+  offline = offline,
+  onlineCVSummary = onlineCVSummary,
+  folds = permuteLocs,
+  numAngles = 3,
+  weighted = weighted
+)
+```
+
+    ## [1] "Running Fold:  1"
+    ## [1] "Running Fold:  2"
+    ## [1] "Running Fold:  3"
+    ## [1] "Running Fold:  4"
+    ## [1] "Running Fold:  5"
+    ## [1] "Running Fold:  6"
+    ## [1] "Running Fold:  7"
+    ## [1] "Running Fold:  8"
+    ## [1] "Running Fold:  9"
+    ## [1] "Running Fold:  10"
+    ## [1] "Running Fold:  11"
+
+``` r
+stop = proc.time()
+diff = stop-start
+print(diff)
+```
+
+    ##    user  system elapsed 
+    ##   35.69    0.31   36.02
+
+``` r
+err
+```
+
+    ##  [1] 1497.000 1359.776 1302.803 1228.459 1161.732 1141.632 1133.907 1124.802
+    ##  [9] 1123.354 1145.482 1150.818 1163.121 1160.105 1193.455 1212.596 1237.951
+    ## [17] 1278.242 1313.864 1350.810 1392.144
+
+``` r
+plot(err)
+```
+
+![](modeling_files/figure-gfm/unnamed-chunk-40-1.png)<!-- -->
+
+**Final Model**
+
+``` r
+finalK = which.min(err)
+finalK
+```
+
+    ## [1] 9
+
+``` r
+estXYfinalK = predXY(
+  newSignals = onlineSummary[ , 6:11],
+  newAngles = onlineSummary[ , 4],
+  trainData = offline,
+  numAngles = 3,
+  k = finalK,
+  weighted = weighted
+)
+calcError(estXYfinalK, actualXY)
+```
+
+    ## [1] 284.8583

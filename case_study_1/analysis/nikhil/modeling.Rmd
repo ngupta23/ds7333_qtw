@@ -211,58 +211,113 @@ selectTrain = function(angleNewObs, train_data, m){
   angles[angles < 0] = angles[ angles < 0 ] + 360
   angles[angles > 360] = angles[ angles > 360 ] - 360
   
-  # print(paste("Angles Chosen = ", paste(angles, collapse=", "), sep = ""))
-  
   # Subset only those angles from original data (tall-skinny)
   train_data_subset = train_data[train_data$angle %in% angles, ]
   
-  # Convert to Wide and average 
-  #train_data_subset = tall2wide(data = train_data_subset)
+  # Convert to Wide and average the data for the same positions 
   train_data_subset = reshapeSS(data = train_data_subset, varSignal = "signal")
-  
   
   return(train_data_subset)
 }
 ```
 
+# Nearest Neighbors
 
-# Functions (Nearest Neighbors)
+## Common Functions
 
 ```{r}
-findNN = function(newSignal, trainSubset) {
+#' @description Computes the distance of the new signal (single observation) to each observation in the training dataset
+#' @param newSignals The Signal Values for the validation data for each observation
+#' @param trainSubset The training data to be used
+#' @param weighted Whether the mean value should be weighted based on distancde or not.
+#' @return A dataframe containing same number of rows as that in the training data.
+#'         The observations are ordered by the distance to the new signal. Each row contains 5 columns. 
+#'         1st column is the XY location of the training observation (string)
+#'         2nd column is the X location of the training observation (float)
+#'         3rd column is the Y location of the training observation (float)
+#'         4th column is the distance to the point under consideration to the training observation (float)
+#'         5th column is the inverse distance or weight (float). Weight is hard coded to 1 for all observations if weighted = FALSE
+findNN = function(newSignal, trainSubset, weighted=FALSE) {
   diffs = apply(trainSubset[ , 4:9], 1, function(x) x - newSignal)
   dists = apply(diffs, 2, function(x) sqrt(sum(x^2)) )
   closest = order(dists)
-  return(trainSubset[closest, 1:3])
+  
+  ordered_dist = dists[closest]
+  if(weighted == TRUE){
+    weight = 1/ordered_dist
+  }
+  if(weighted == FALSE){
+    weight = rep(1, length(dists))
+  }
+  return(cbind(trainSubset[closest, 1:3], ordered_dist, weight))
 }
+```
 
-predXY = function(newSignals, newAngles, trainData, numAngles = 1, k = 3){
+```{r}
+#' @description XY Prediction for a single value of k (num neighbors)
+#' @param newSignals The Signal Values for the validation data for each observation
+#' @param newAngles The Orientation of the validation data for each observation
+#' @param trainData The training data to be used
+#' @param numAngles Number of closest reference angles to include in the data
+#' @param k Perform the predicton for num neighbors = k
+#' @param weighted Whether the mean value should be weighted based on distancde or not.
+#' @return A dataframe with num rows = number of (validation) observations and num columns = 2
+#'         Each row indicates the prediction of the mean X and Y values for that observation
+predXY = function(newSignals, newAngles, trainData, numAngles = 1, k = 3, weighted=FALSE){
   closeXY = list(length = nrow(newSignals))
   for (i in 1:nrow(newSignals)) {
     trainSS = selectTrain(newAngles[i], trainData, m = numAngles)
     closeXY[[i]] = findNN(
       newSignal = as.numeric(newSignals[i, ]),
-      trainSubset = trainSS
+      trainSubset = trainSS,
+      weighted = weighted
     )
   }
-  estXY = lapply(closeXY, function(x) sapply(x[ , 2:3], function(x) mean(x[1:k])))
+  
+  #' @description Returns the (un)weighted mean X and Y locations for a single observation and single value of neighbors
+  #' @param x Dataframe containing 5 columns 
+  #' 1st column is the XY location (string)
+  #' 2nd column is the X location (float)
+  #' 3rd column is the Y location (float)
+  #' 4th column is the distance to the point under consideration (float)
+  #' 5th column is the inverse distance or weight (float)
+  #' @param k Number of nearest neighbors to use
+  #' @return A pair of XY mean values for k number of neighbors
+  k_means_single_obs = function(x, k){
+    weights = x[1:k, 5]
+    weighted_x = sum(x[1:k, 2] * weights) / sum(weights)
+    weighted_y = sum(x[1:k, 3] * weights) / sum(weights)
+    return(c(weighted_x, weighted_y))
+  }
+  
+  # estXY = lapply(closeXY, function(x) sapply(x[ , 2:3], function(x) mean(x[1:k])))
+  estXY = lapply(closeXY, k_means_single_obs, k)
   estXY = do.call("rbind", estXY)
   return(estXY)
 }
+```
 
+```{r}
 calcError = function(estXY, actualXY){
   return(sum(rowSums((estXY - actualXY)^2)))
 }
 ```
 
-# Nearest Neighbors
+
+## Unweighted
+
+```{r}
+weighted = FALSE
+```
+
 ```{r}
 estXYk3 = predXY(
   newSignals = onlineSummary[ , 6:11],
   newAngles = onlineSummary$angle, 
   trainData = offline,
   numAngles = 3,
-  k = 3
+  k = 3,
+  weighted = weighted
 )
 ```
 
@@ -272,7 +327,8 @@ estXYk1 = predXY(
   newAngles = onlineSummary$angle, 
   trainData = offline,
   numAngles = 3,
-  k = 1
+  k = 1,
+  weighted = weighted
 )
 ```
 
@@ -282,7 +338,42 @@ sapply(list(estXYk1, estXYk3), calcError, actualXY)
 ```
 
 
-# K-Fold
+## Weighted
+
+```{r}
+weighted = TRUE
+```
+
+```{r}
+estXYk3_weighted = predXY(
+  newSignals = onlineSummary[ , 6:11],
+  newAngles = onlineSummary$angle, 
+  trainData = offline,
+  numAngles = 3,
+  k = 3,
+  weighted = weighted
+)
+```
+
+```{r}
+estXYk1_weighted = predXY(
+  newSignals = onlineSummary[ , 6:11],
+  newAngles = onlineSummary$angle, 
+  trainData = offline,
+  numAngles = 3,
+  k = 1,
+  weighted = weighted
+)
+```
+
+```{r}
+actualXY = onlineSummary %>%  dplyr::select(posX, posY)
+sapply(list(estXYk1_weighted, estXYk3_weighted), calcError, actualXY)
+```
+
+# K-Fold 
+
+## Setup
 
 ```{r}
 set.seed(42)
@@ -337,94 +428,159 @@ calcError(estFold, actualFold)
 ```
 
 
-
+## Slower Cross Validation
 ```{r}
-start = proc.time()
-err_slow = rep(0, K)
-for (j in 1:v) {
-  print(paste("Running Fold: ", j))
-  onlineFold = subset(onlineCVSummary, posXY %in% permuteLocs[ , j])
-  offlineFold = subset(offline, posXY %in% permuteLocs[ , -j])
-  actualFold = onlineFold[ , c("posX", "posY")]
-  for (k in 1:K) {
-    print(paste("    Nearest Neighbors: ", k))
-    estFold = predXY(
-      newSignals = onlineFold[ , 6:11],
-      newAngles = onlineFold[ , 4],
-      offlineFold,
-      numAngles = 3,
-      k = k
-    )
-    err_slow[k] = err_slow[k] + calcError(estFold, actualFold)
-  }
-}
-stop = proc.time()
-diff = stop-start
-print(diff)
+# start = proc.time()
+# err_slow = rep(0, K)
+# for (j in 1:v) {
+#   print(paste("Running Fold: ", j))
+#   onlineFold = subset(onlineCVSummary, posXY %in% permuteLocs[ , j])
+#   offlineFold = subset(offline, posXY %in% permuteLocs[ , -j])
+#   actualFold = onlineFold[ , c("posX", "posY")]
+#   for (k in 1:K) {
+#     print(paste("    Nearest Neighbors: ", k))
+#     estFold = predXY(
+#       newSignals = onlineFold[ , 6:11],
+#       newAngles = onlineFold[ , 4],
+#       offlineFold,
+#       numAngles = 3,
+#       k = k
+#     )
+#     err_slow[k] = err_slow[k] + calcError(estFold, actualFold)
+#   }
+# }
+# stop = proc.time()
+# diff = stop-start
+# print(diff)
 ```
 
 ```{r}
-err_slow
-plot(err_slow)
+# err_slow
+# plot(err_slow)
 ```
 
-# Faster K Fold
+## Faster Cross Validation
 
 ```{r}
-# Modified to help with faster CV
-predXYCV = function(newSignals, newAngles, trainData, numAngles = 1, K = 10){
+#' @description Modified XY Prediction to help with faster CV for all K values at once (from 1 to K)
+#' @param newSignals The Signal Values for the validation data for each observation
+#' @param newAngles The Orientation of the validation data for each observation
+#' @param trainData The training data to be used
+#' @param numAngles Number of closest reference angles to include in the data
+#' @param K Perform the prediction for num neighbors from 1 to K
+#' @param weighted Whether the mean value should be weighted based on distancde or not.
+#' @return A nested dataframe with num rows = number of (validation) observations and num columns = number of folds
+#'         Each entry in this dataframe is a vector of 2 values
+#'         indicating the prediction of the mean X and Y values for that obs and num neighbors
+predXYallK = function(newSignals, newAngles, trainData, numAngles = 1, K = 10, weighted=FALSE){
   closeXY = list(length = nrow(newSignals))
   for (i in 1:nrow(newSignals)) {
     trainSS = selectTrain(newAngles[i], trainData, m = numAngles)
     closeXY[[i]] = findNN(
       newSignal = as.numeric(newSignals[i, ]),
-      trainSubset = trainSS
+      trainSubset = trainSS,
+      weighted = weighted
     )
   }
   
-  all_K_means_single_obs = function(x){
+  #' @description Returns the (un)weighted mean X and Y locations for a single observation and multiple neighor values
+  #' @param x Dataframe containing 5 columns 
+  #' 1st column is the XY location (string)
+  #' 2nd column is the X location (float)
+  #' 3rd column is the Y location (float)
+  #' 4th column is the distance to the point under consideration (float)
+  #' 5th column is the inverse distance or weight (float)
+  #' @param K Number of nearest neighbors to use
+  #' @return A list of K pairs (each pair is a XY mean value for a single k)
+  all_K_means_single_obs = function(x, K){
     # Row will contain the K mean values for k = 1 to K
-    row = rep(0, K)
-    for(k in 1:K){
-      row[k] = mean(x[1:k])
+    rows = list()
+    for(k in seq(1, K)){
+      rows[[k]] = k_means_single_obs(x, k)
     }
-    return(row)
+    return(rows)
+  }
+  
+  #' @description Returns the (un)weighted mean X and Y locations for a single observation and single value of neighbors
+  #' @param x Dataframe containing 5 columns 
+  #' 1st column is the XY location (string)
+  #' 2nd column is the X location (float)
+  #' 3rd column is the Y location (float)
+  #' 4th column is the distance to the point under consideration (float)
+  #' 5th column is the inverse distance or weight (float)
+  #' @param k Number of nearest neighbors to use
+  #' @return A pair of XY mean values for k number of neighbors
+  k_means_single_obs = function(x, k){
+    weights = x[1:k, 5]
+    weighted_x = sum(x[1:k, 2] * weights) / sum(weights)
+    weighted_y = sum(x[1:k, 3] * weights) / sum(weights)
+    return(c(weighted_x, weighted_y))
   }
   
   # estXY = lapply(closeXY, function(x) sapply(x[ , 2:3], function(x) mean(x[1:k])))
-  estXY = lapply(closeXY, function(x) sapply(x[ , 2:3], all_K_means_single_obs))
-
+  estXY = lapply(closeXY, all_K_means_single_obs, K)
+  estXY = do.call("rbind", estXY)
   return(estXY)
 }
 ```
 
 
 ```{r}
-start = proc.time()
-err = rep(0, K)
-for (j in 1:v) {
-  print(paste("Running Fold: ", j))
-  onlineFold = subset(onlineCVSummary, posXY %in% permuteLocs[ , j])
-  offlineFold = subset(offline, posXY %in% permuteLocs[ , -j])
-  actualFold = onlineFold[ , c("posX", "posY")]
-  
-  estFold = predXYCV(
-      newSignals = onlineFold[ , 6:11],
-      newAngles = onlineFold[ , 4],
-      offlineFold,
-      numAngles = 3,
-      K = K
-    )
-  
-  # Reformat into correct format for each 'k' value
-  for(k in 1:K){ 
-    estSingleK = data.frame()
-    for(i in 1:length(estFold)){
-      estSingleK = rbind(estSingleK, estFold[[i]][k, ])
+#' @description Returns the (un)weighted mean X and Y locations for a single observation and multiple neighor values
+#' @param K Number of nearest neighbors to use (Will run Grid Search over all values from k = 1 to K)
+#' @param v Number of folds to use
+#' @param offline Use "as is" from script for now
+#' @param onlineCVSummary Use "as is" from script for now
+#' @param folds A matrix with rows = number of observations in each fold and columns = number of folds.
+#'              The values are the XY IDs to be included in that fold
+#' @param numAngles Number of closest reference angles to include in the data
+#' @param weighted Whether the mean value should be weighted based on distancde or not.
+#' @return A vector of K values indicating the Error for each value of k from 1 to K
+run_kfold = function(K, v, offline, onlineCVSummary, folds, numAngles, weighted=FALSE){
+  err = rep(0, K)
+  for (j in 1:v) {
+    print(paste("Running Fold: ", j))
+    onlineFold = subset(onlineCVSummary, posXY %in% folds[ , j])
+    offlineFold = subset(offline, posXY %in% folds[ , -j])
+    actualFold = onlineFold[ , c("posX", "posY")]
+    
+    estFold = predXYallK(
+        newSignals = onlineFold[ , 6:11],
+        newAngles = onlineFold[ , 4],
+        trainData = offlineFold,
+        numAngles = numAngles,
+        K = K,
+        weighted=weighted
+      )
+    
+    # Reformat into correct format for each 'k' value
+    for(k in 1:K){ 
+      estSingleK = data.frame()
+      for(i in seq(1, length(estFold)/K)){  # i = NUmber of the observtion
+        estSingleK = rbind(estSingleK, t(as.data.frame(estFold[i,k])))
+      }
+      err[k] = err[k] + calcError(estSingleK, actualFold)
     }
-    err[k] = err[k] + calcError(estSingleK, actualFold)
-  }
+  } 
+  return(err)
 }
+```
+
+### Unweighted
+```{r}
+weighted = FALSE
+
+start = proc.time()
+err = run_kfold(
+  K = K,
+  v = v,
+  offline = offline,
+  onlineCVSummary = onlineCVSummary,
+  folds = permuteLocs,
+  numAngles = 3,
+  weighted = weighted
+)
+
 stop = proc.time()
 diff = stop-start
 print(diff)
@@ -435,11 +591,7 @@ err
 plot(err)
 ```
 
-```{r}
-identical(err, err_slow)
-```
-
-# Final Model
+**Final Model**
 
 ```{r}
 finalK = which.min(err)
@@ -452,7 +604,52 @@ estXYfinalK = predXY(
   newAngles = onlineSummary[ , 4],
   trainData = offline,
   numAngles = 3,
-  k = finalK
+  k = finalK,
+  weighted = weighted
+)
+calcError(estXYfinalK, actualXY)
+```
+
+### Weighted
+```{r}
+weighted = TRUE
+
+start = proc.time()
+err = run_kfold(
+  K = K,
+  v = v,
+  offline = offline,
+  onlineCVSummary = onlineCVSummary,
+  folds = permuteLocs,
+  numAngles = 3,
+  weighted = weighted
+)
+
+stop = proc.time()
+diff = stop-start
+print(diff)
+```
+
+```{r}
+err
+plot(err)
+```
+
+**Final Model**
+
+```{r}
+finalK = which.min(err)
+finalK
+```
+
+```{r}
+estXYfinalK = predXY(
+  newSignals = onlineSummary[ , 6:11],
+  newAngles = onlineSummary[ , 4],
+  trainData = offline,
+  numAngles = 3,
+  k = finalK,
+  weighted = weighted
 )
 calcError(estXYfinalK, actualXY)
 ```
