@@ -1,0 +1,458 @@
+---
+title: "EDA"
+author: "Nikhil Gupta"
+date: "`r Sys.time()`"
+always_allow_html: yes
+output:
+  github_document:
+    toc: true
+    toc_depth: 6
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(magrittr)
+```
+
+## Files
+```{r}
+offline_file = "../../data/offline.final.trace.txt"
+online_file = "../../data/online.final.trace.txt"
+```
+
+# Functions (Process Raw Data)
+
+```{r}
+# Create a function to parse the data
+processLine = function(x){
+  # Split up the line on ';', '=' and ','
+  tokens = strsplit(x, "[;=,]")[[1]]
+  
+  # The hand held device (the one for which we need to determine the position)
+  # infromation is contained in the 1st 10 tokens (refer to book page 9)
+  # If no scanned signal values, return NULL
+  if (length(tokens) == 10) {
+    return(NULL)
+  }
+  
+  # The tokens after the 10th one represent the signal strength at the access points (book page 9). 
+  # Split up the tokens into individual measurements (each measurement contains 4 data points)
+  # 4 points are: MAC address, Signal, Channel and Device Type
+  # Device Type 3 is what is important (book page 6)
+  tmp = matrix(data = tokens[ - (1:10) ], ncol = 4, byrow = TRUE)
+  
+  # Combine signal measurement with the h
+  cbind(matrix(tokens[c(2, 4, 6:8, 10)], nrow(tmp), 6, byrow = TRUE), tmp)
+}
+```
+
+```{r}
+#' @description Function to read the data, clean it and process it into an appropriate format
+#' @param file Filename to be read in
+#' @param keepMacs a list of MAC addresses to keep
+#' @returns A dataframe 
+readData = function(file, keepMacs=NULL){
+  # Read in the raw "offline" text file
+  txt = readLines(file)
+  
+  ##############################
+  #### Process the raw data ####
+  ##############################
+  
+  # Parse the data
+  lines = txt[substr(txt, 1, 1) != "#" ]
+  tmp = lapply(lines, processLine)
+  
+  # Convert the data to a data frame
+  data = as.data.frame(do.call("rbind", tmp), stringsAsFactors = FALSE)
+
+  ######################################################################
+  #### Cleaning the Data and Building a Representation for Analysis ####
+  ######################################################################
+  
+  # Assign column names to the offline data frame
+  names(data) = c(
+    "time", "scanMac", "posX", "posY", "posZ",
+    "orientation", "mac", "signal",
+    "channel", "type"
+  )
+  
+  numVars = c("time", "posX", "posY", "posZ", "orientation", "signal")
+  data[numVars] = lapply(data[numVars], as.numeric)
+  
+  # Keep only required device types (remove adhoc)
+  data = data[data$type != 1, ]
+
+  # Keep only required MAC Addresses
+  data = data[data$mac %in% keepMacs, ]
+  
+  # # From book page 13
+  # data$rawTime = data$time
+  # data$time = data$time/1000
+  # class(data$time) = c("POSIXt", "POSIXct")
+  
+  # Discard unwanted columns that dont add any additional information
+  data = data[ , !(names(data) %in% c("scanMac", "posZ"))]
+
+  # Cleanup Orientation
+  data$angle = roundOrientation(data$orientation)
+  
+  # Add position identifier 
+  data$posXY = paste(data$posX, data$posY, sep = "-")
+
+  return(data)
+}
+```
+
+# Offline data
+
+```{r}
+# Keep only required MAC Addresses
+keepMacs = c(
+  '00:0f:a3:39:e1:c0',
+  # '00:0f:a3:39:dd:cd',
+  '00:14:bf:b1:97:8a',
+  '00:14:bf:3b:c7:c6',
+  '00:14:bf:b1:97:90',
+  '00:14:bf:b1:97:8d',
+  '00:14:bf:b1:97:81'
+)
+```
+
+```{r}
+roundOrientation = function(angles) {
+  refs = seq(0, by = 45, length = 9)
+  q = sapply(angles, function(o) which.min(abs(o - refs)))
+    c(refs[1:8], 0)[q]
+  }
+```
+
+```{r}
+offline = readData(file = offline_file, keepMacs = keepMacs)
+dim(offline)
+length(unique(offline$posXY))
+```
+
+# Online Data
+```{r}
+online = readData(file = online_file, keepMacs = keepMacs)
+dim(online)
+length(unique(online$posXY))
+```
+
+# Function (Reshape)
+```{r}
+# This is equivalent to the tall2wide function 
+reshapeSS = function(data, varSignal = "signal", keepVars = c("posXY", "posX", "posY"), sampleAngle = FALSE) {
+  refs = seq(0, by = 45, length = 8)
+  byLocation =
+  with(
+    data,
+    by(
+      data,
+      list(posXY),
+      function(x) {
+        if (sampleAngle) x = x[x$angle == sample(refs, size = 1), ]
+        ans = x[1, keepVars]
+        avgSS = tapply(x[ , varSignal ], x$mac, mean)
+        y = matrix(avgSS, nrow = 1, ncol = 6,
+        dimnames = list(ans$posXY, names(avgSS)))
+        cbind(ans, y)
+      }
+    )
+  )
+  newDataSS = do.call("rbind", byLocation)
+  return(newDataSS)
+}
+
+```
+
+# Reshape Test Data
+```{r}
+keepVars = c("posXY", "posX","posY", "orientation", "angle")
+onlineSummary = reshapeSS(data = online, varSignal = "signal", keepVars = keepVars)
+onlineSummary
+```
+
+
+# Function (Select Train Data)
+
+```{r}
+#' @description Selectes the appropriate observations (based on test data orientation) from the original tall data
+#' and reformats it such that it can be used for training the KNN algorithm
+#' @param angleNewObs Angle (Orientation) of the test observation
+#' @param train_data Original tall-skinny data
+#' @param m Keep the 'm' closest orientations to angleNewObs 
+#' @returns A dataframe suitable for training
+selectTrain = function(angleNewObs, train_data, m){
+  
+  # Find the angles to keep
+  if (m %% 2 == 1) {
+    angles = seq(-45 * (m - 1) /2, 45 * (m - 1) /2, length = m)
+  } else {
+    m = m + 1
+    angles = seq(-45 * (m - 1) /2, 45 * (m - 1) /2, length = m)
+    if (sign(angleNewObs - nearestAngle) > -1)
+      angles = angles[ -1 ]
+    else
+      angles = angles[ -m ]
+  }
+  
+  nearestAngle = roundOrientation(angles = angleNewObs)
+  angles = angles + nearestAngle
+  angles[angles < 0] = angles[ angles < 0 ] + 360
+  angles[angles > 360] = angles[ angles > 360 ] - 360
+  
+  # print(paste("Angles Chosen = ", paste(angles, collapse=", "), sep = ""))
+  
+  # Subset only those angles from original data (tall-skinny)
+  train_data_subset = train_data[train_data$angle %in% angles, ]
+  
+  # Convert to Wide and average 
+  #train_data_subset = tall2wide(data = train_data_subset)
+  train_data_subset = reshapeSS(data = train_data_subset, varSignal = "signal")
+  
+  
+  return(train_data_subset)
+}
+```
+
+
+# Functions (Nearest Neighbors)
+
+```{r}
+findNN = function(newSignal, trainSubset) {
+  diffs = apply(trainSubset[ , 4:9], 1, function(x) x - newSignal)
+  dists = apply(diffs, 2, function(x) sqrt(sum(x^2)) )
+  closest = order(dists)
+  return(trainSubset[closest, 1:3])
+}
+
+predXY = function(newSignals, newAngles, trainData, numAngles = 1, k = 3){
+  closeXY = list(length = nrow(newSignals))
+  for (i in 1:nrow(newSignals)) {
+    trainSS = selectTrain(newAngles[i], trainData, m = numAngles)
+    closeXY[[i]] = findNN(
+      newSignal = as.numeric(newSignals[i, ]),
+      trainSubset = trainSS
+    )
+  }
+  estXY = lapply(closeXY, function(x) sapply(x[ , 2:3], function(x) mean(x[1:k])))
+  estXY = do.call("rbind", estXY)
+  return(estXY)
+}
+
+calcError = function(estXY, actualXY){
+  return(sum(rowSums((estXY - actualXY)^2)))
+}
+```
+
+# Nearest Neighbors
+```{r}
+estXYk3 = predXY(
+  newSignals = onlineSummary[ , 6:11],
+  newAngles = onlineSummary$angle, 
+  trainData = offline,
+  numAngles = 3,
+  k = 3
+)
+```
+
+```{r}
+estXYk1 = predXY(
+  newSignals = onlineSummary[ , 6:11],
+  newAngles = onlineSummary$angle, 
+  trainData = offline,
+  numAngles = 3,
+  k = 1
+)
+```
+
+```{r}
+actualXY = onlineSummary %>%  dplyr::select(posX, posY)
+sapply(list(estXYk1, estXYk3), calcError, actualXY)
+```
+
+
+# K-Fold
+
+```{r}
+set.seed(42)
+K = 20
+v = 11
+permuteLocs = sample(unique(offline$posXY))
+permuteLocs = matrix(permuteLocs, ncol = v, nrow = floor(length(permuteLocs)/v))
+permuteLocs
+```
+
+```{r}
+onlineFold = subset(offline, posXY %in% permuteLocs[ , 1])
+head(onlineFold)
+```
+
+```{r}
+# For reference
+head(onlineSummary)
+```
+
+```{r}
+keepVars = c("posXY", "posX","posY", "orientation", "angle")
+onlineCVSummary = reshapeSS(offline, keepVars = keepVars, sampleAngle = TRUE)
+onlineCVSummary
+```
+
+```{r}
+# First Fold (validation)
+onlineFold = subset(onlineCVSummary, posXY %in% permuteLocs[ , 1])
+head(onlineFold)
+```
+
+```{r}
+# First Fold (Train)
+offlineFold = subset(offline, posXY %in% permuteLocs[ , -1])
+head(offlineFold)
+```
+
+```{r}
+estFold = predXY(
+  newSignals = onlineFold[ , 6:11],
+  newAngles = onlineFold[ , 4],
+  offlineFold,
+  numAngles = 3,
+  k = 3
+)
+```
+
+```{r}
+actualFold = onlineFold[ , c("posX", "posY")]
+calcError(estFold, actualFold)
+```
+
+
+
+```{r}
+start = proc.time()
+err_slow = rep(0, K)
+for (j in 1:v) {
+  print(paste("Running Fold: ", j))
+  onlineFold = subset(onlineCVSummary, posXY %in% permuteLocs[ , j])
+  offlineFold = subset(offline, posXY %in% permuteLocs[ , -j])
+  actualFold = onlineFold[ , c("posX", "posY")]
+  for (k in 1:K) {
+    print(paste("    Nearest Neighbors: ", k))
+    estFold = predXY(
+      newSignals = onlineFold[ , 6:11],
+      newAngles = onlineFold[ , 4],
+      offlineFold,
+      numAngles = 3,
+      k = k
+    )
+    err_slow[k] = err_slow[k] + calcError(estFold, actualFold)
+  }
+}
+stop = proc.time()
+diff = stop-start
+print(diff)
+```
+
+```{r}
+err_slow
+plot(err_slow)
+```
+
+# Faster K Fold
+
+```{r}
+# Modified to help with faster CV
+predXYCV = function(newSignals, newAngles, trainData, numAngles = 1, K = 10){
+  closeXY = list(length = nrow(newSignals))
+  for (i in 1:nrow(newSignals)) {
+    trainSS = selectTrain(newAngles[i], trainData, m = numAngles)
+    closeXY[[i]] = findNN(
+      newSignal = as.numeric(newSignals[i, ]),
+      trainSubset = trainSS
+    )
+  }
+  
+  all_K_means_single_obs = function(x){
+    # Row will contain the K mean values for k = 1 to K
+    row = rep(0, K)
+    for(k in 1:K){
+      row[k] = mean(x[1:k])
+    }
+    return(row)
+  }
+  
+  # estXY = lapply(closeXY, function(x) sapply(x[ , 2:3], function(x) mean(x[1:k])))
+  estXY = lapply(closeXY, function(x) sapply(x[ , 2:3], all_K_means_single_obs))
+
+  return(estXY)
+}
+```
+
+
+```{r}
+start = proc.time()
+err = rep(0, K)
+for (j in 1:v) {
+  print(paste("Running Fold: ", j))
+  onlineFold = subset(onlineCVSummary, posXY %in% permuteLocs[ , j])
+  offlineFold = subset(offline, posXY %in% permuteLocs[ , -j])
+  actualFold = onlineFold[ , c("posX", "posY")]
+  
+  estFold = predXYCV(
+      newSignals = onlineFold[ , 6:11],
+      newAngles = onlineFold[ , 4],
+      offlineFold,
+      numAngles = 3,
+      K = K
+    )
+  
+  # Reformat into correct format for each 'k' value
+  for(k in 1:K){ 
+    estSingleK = data.frame()
+    for(i in 1:length(estFold)){
+      estSingleK = rbind(estSingleK, estFold[[i]][k, ])
+    }
+    err[k] = err[k] + calcError(estSingleK, actualFold)
+  }
+}
+stop = proc.time()
+diff = stop-start
+print(diff)
+```
+
+```{r}
+err
+plot(err)
+```
+
+```{r}
+identical(err, err_slow)
+```
+
+# Final Model
+
+```{r}
+finalK = which.min(err)
+finalK
+```
+
+```{r}
+estXYfinalK = predXY(
+  newSignals = onlineSummary[ , 6:11],
+  newAngles = onlineSummary[ , 4],
+  trainData = offline,
+  numAngles = 3,
+  k = finalK
+)
+calcError(estXYfinalK, actualXY)
+```
