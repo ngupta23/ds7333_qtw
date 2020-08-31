@@ -4,12 +4,12 @@ author: "Nikhil Gupta"
 date: "`r Sys.time()`"
 always_allow_html: yes
 output:
-  github_document:
-    toc: true
-    toc_depth: 6
   html_document:
     toc: true
     toc_float: true
+    toc_depth: 6
+  github_document:
+    toc: true
     toc_depth: 6
 ---
 
@@ -20,6 +20,8 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(tidyverse)
 library(magrittr)
+library(plotly)
+library(DT)
 ```
 
 ## Files
@@ -125,6 +127,9 @@ keepMacs = c(
   '00:14:bf:b1:97:8d',
   '00:14:bf:b1:97:81'
 )
+
+numMacs = length(keepMacs)
+numMacs
 ```
 
 ```{r}
@@ -163,7 +168,7 @@ reshapeSS = function(data, varSignal = "signal", keepVars = c("posXY", "posX", "
         if (sampleAngle) x = x[x$angle == sample(refs, size = 1), ]
         ans = x[1, keepVars]
         avgSS = tapply(x[ , varSignal ], x$mac, mean)
-        y = matrix(avgSS, nrow = 1, ncol = 6,
+        y = matrix(avgSS, nrow = 1, ncol = numMacs,
         dimnames = list(ans$posXY, names(avgSS)))
         cbind(ans, y)
       }
@@ -195,6 +200,9 @@ onlineSummary
 selectTrain = function(angleNewObs, train_data, m){
   
   # Find the angles to keep
+  
+  nearestAngle = roundOrientation(angles = angleNewObs)
+  
   if (m %% 2 == 1) {
     angles = seq(-45 * (m - 1) /2, 45 * (m - 1) /2, length = m)
   } else {
@@ -206,7 +214,6 @@ selectTrain = function(angleNewObs, train_data, m){
       angles = angles[ -m ]
   }
   
-  nearestAngle = roundOrientation(angles = angleNewObs)
   angles = angles + nearestAngle
   angles[angles < 0] = angles[ angles < 0 ] + 360
   angles[angles > 360] = angles[ angles > 360 ] - 360
@@ -238,7 +245,7 @@ selectTrain = function(angleNewObs, train_data, m){
 #'         4th column is the distance to the point under consideration to the training observation (float)
 #'         5th column is the inverse distance or weight (float). Weight is hard coded to 1 for all observations if weighted = FALSE
 findNN = function(newSignal, trainSubset, weighted=FALSE) {
-  diffs = apply(trainSubset[ , 4:9], 1, function(x) x - newSignal)
+  diffs = apply(trainSubset[ , 4:(4+numMacs-1)], 1, function(x) x - newSignal)
   dists = apply(diffs, 2, function(x) sqrt(sum(x^2)) )
   closest = order(dists)
   
@@ -312,7 +319,7 @@ weighted = FALSE
 
 ```{r}
 estXYk3 = predXY(
-  newSignals = onlineSummary[ , 6:11],
+  newSignals = onlineSummary[ , 6:(6+numMacs-1)],
   newAngles = onlineSummary$angle, 
   trainData = offline,
   numAngles = 3,
@@ -323,7 +330,7 @@ estXYk3 = predXY(
 
 ```{r}
 estXYk1 = predXY(
-  newSignals = onlineSummary[ , 6:11],
+  newSignals = onlineSummary[ , 6:(6+numMacs-1)],
   newAngles = onlineSummary$angle, 
   trainData = offline,
   numAngles = 3,
@@ -346,7 +353,7 @@ weighted = TRUE
 
 ```{r}
 estXYk3_weighted = predXY(
-  newSignals = onlineSummary[ , 6:11],
+  newSignals = onlineSummary[ , 6:(6+numMacs-1)],
   newAngles = onlineSummary$angle, 
   trainData = offline,
   numAngles = 3,
@@ -357,7 +364,7 @@ estXYk3_weighted = predXY(
 
 ```{r}
 estXYk1_weighted = predXY(
-  newSignals = onlineSummary[ , 6:11],
+  newSignals = onlineSummary[ , 6:(6+numMacs-1)],
   newAngles = onlineSummary$angle, 
   trainData = offline,
   numAngles = 3,
@@ -379,6 +386,17 @@ sapply(list(estXYk1_weighted, estXYk3_weighted), calcError, actualXY)
 set.seed(42)
 K = 20
 v = 11
+```
+
+```{r}
+allNeighbors = c(1:K)
+allNeighbors
+
+allAngles = c(1:8)
+allAngles
+```
+
+```{r}
 permuteLocs = sample(unique(offline$posXY))
 permuteLocs = matrix(permuteLocs, ncol = v, nrow = floor(length(permuteLocs)/v))
 permuteLocs
@@ -414,7 +432,7 @@ head(offlineFold)
 
 ```{r}
 estFold = predXY(
-  newSignals = onlineFold[ , 6:11],
+  newSignals = onlineFold[ , 6:(6+numMacs-1)],
   newAngles = onlineFold[ , 4],
   offlineFold,
   numAngles = 3,
@@ -427,39 +445,9 @@ actualFold = onlineFold[ , c("posX", "posY")]
 calcError(estFold, actualFold)
 ```
 
-
-## Slower Cross Validation
-```{r}
-# start = proc.time()
-# err_slow = rep(0, K)
-# for (j in 1:v) {
-#   print(paste("Running Fold: ", j))
-#   onlineFold = subset(onlineCVSummary, posXY %in% permuteLocs[ , j])
-#   offlineFold = subset(offline, posXY %in% permuteLocs[ , -j])
-#   actualFold = onlineFold[ , c("posX", "posY")]
-#   for (k in 1:K) {
-#     print(paste("    Nearest Neighbors: ", k))
-#     estFold = predXY(
-#       newSignals = onlineFold[ , 6:11],
-#       newAngles = onlineFold[ , 4],
-#       offlineFold,
-#       numAngles = 3,
-#       k = k
-#     )
-#     err_slow[k] = err_slow[k] + calcError(estFold, actualFold)
-#   }
-# }
-# stop = proc.time()
-# diff = stop-start
-# print(diff)
-```
-
-```{r}
-# err_slow
-# plot(err_slow)
-```
-
 ## Faster Cross Validation
+
+### Common Functions
 
 ```{r}
 #' @description Modified XY Prediction to help with faster CV for all K values at once (from 1 to K)
@@ -545,7 +533,7 @@ run_kfold = function(K, v, offline, onlineCVSummary, folds, numAngles, weighted=
     actualFold = onlineFold[ , c("posX", "posY")]
     
     estFold = predXYallK(
-        newSignals = onlineFold[ , 6:11],
+        newSignals = onlineFold[ , 6:(6+numMacs-1)],
         newAngles = onlineFold[ , 4],
         trainData = offlineFold,
         numAngles = numAngles,
@@ -566,44 +554,73 @@ run_kfold = function(K, v, offline, onlineCVSummary, folds, numAngles, weighted=
 }
 ```
 
+
 ### Unweighted
 ```{r}
 weighted = FALSE
+allErrors = data.frame()
 
 start = proc.time()
-err = run_kfold(
-  K = K,
-  v = v,
-  offline = offline,
-  onlineCVSummary = onlineCVSummary,
-  folds = permuteLocs,
-  numAngles = 3,
-  weighted = weighted
-)
+for(numAngles in allAngles){
+  print(paste("Running ", v, "-fold cross validation with 1 to ", K, " neighbors, for number of Angles = ", numAngles))
+  err = run_kfold(
+    K = K,
+    v = v,
+    offline = offline,
+    onlineCVSummary = onlineCVSummary,
+    folds = permuteLocs,
+    numAngles = numAngles,
+    weighted = weighted
+  )
+  allErrors = rbind(allErrors, err)
+}
 
 stop = proc.time()
 diff = stop-start
 print(diff)
+
+colnames(allErrors) = allNeighbors
+rownames(allErrors) = allAngles
+allErrorsLong = allErrors %>% 
+  mutate(NumAngles=rownames(.)) %>% 
+  pivot_longer(cols = !NumAngles, names_to = "NumNeighbors", values_to = "RMSE") %>% 
+  mutate_if(is.character, as.integer)
+DT::datatable(allErrorsLong)
 ```
 
 ```{r}
-err
-plot(err)
+p = ggplot(allErrorsLong, aes(NumNeighbors, NumAngles, fill= RMSE)) + 
+  geom_tile() +
+  scale_y_continuous(breaks=allAngles) +
+  scale_fill_distiller(palette = "RdYlBu")
+ggplotly(p, tooltip="text")
 ```
 
-**Final Model**
+```{r}
+# err
+# plot(err)
+```
+
+#### Final Model
 
 ```{r}
-finalK = which.min(err)
+final = which(allErrors == min(allErrors), arr.ind = TRUE)
+
+finalAngleIndex = final[1]
+finalKIndex = final[2]
+finalAngle = allAngles[finalAngleIndex]
+finalK = allNeighbors[finalKIndex]
+
+finalAngle
 finalK
 ```
 
 ```{r}
 estXYfinalK = predXY(
-  newSignals = onlineSummary[ , 6:11],
+  newSignals = onlineSummary[ , 6:(6+numMacs-1)],
   newAngles = onlineSummary[ , 4],
   trainData = offline,
-  numAngles = 3,
+  numAngles = finalAngle,
   k = finalK,
   weighted = weighted
 )
@@ -613,41 +630,72 @@ calcError(estXYfinalK, actualXY)
 ### Weighted
 ```{r}
 weighted = TRUE
+allErrors = data.frame()
 
 start = proc.time()
-err = run_kfold(
-  K = K,
-  v = v,
-  offline = offline,
-  onlineCVSummary = onlineCVSummary,
-  folds = permuteLocs,
-  numAngles = 3,
-  weighted = weighted
-)
+
+for(numAngles in allAngles){
+  print(paste("Running ", v, "-fold cross validation with 1 to ", K, " neighbors, for number of Angles = ", numAngles))
+  err = run_kfold(
+    K = K,
+    v = v,
+    offline = offline,
+    onlineCVSummary = onlineCVSummary,
+    folds = permuteLocs,
+    numAngles = numAngles,
+    weighted = weighted
+  )
+  allErrors = rbind(allErrors, err)
+}
 
 stop = proc.time()
 diff = stop-start
 print(diff)
+
+colnames(allErrors) = allNeighbors
+rownames(allErrors) = allAngles
+allErrorsLong = allErrors %>% 
+  mutate(NumAngles=rownames(.)) %>% 
+  pivot_longer(cols = !NumAngles, names_to = "NumNeighbors", values_to = "RMSE") %>% 
+  mutate_if(is.character, as.integer)
+DT::datatable(allErrorsLong)
 ```
 
 ```{r}
-err
-plot(err)
+p = ggplot(allErrorsLong, aes(NumNeighbors, NumAngles, fill= RMSE)) + 
+  geom_tile() +
+  scale_y_continuous(breaks=allAngles) +
+  scale_fill_distiller(palette = "RdYlBu")
+ggplotly(p, tooltip="text")
 ```
 
-**Final Model**
 
 ```{r}
-finalK = which.min(err)
+# err
+# plot(err)
+```
+
+#### Final Model
+
+```{r}
+final = which(allErrors == min(allErrors), arr.ind = TRUE)
+
+finalAngleIndex = final[1]
+finalKIndex = final[2]
+finalAngle = allAngles[finalAngleIndex]
+finalK = allNeighbors[finalKIndex]
+
+finalAngle
 finalK
 ```
 
+
 ```{r}
 estXYfinalK = predXY(
-  newSignals = onlineSummary[ , 6:11],
+  newSignals = onlineSummary[ , 6:(6+numMacs-1)],
   newAngles = onlineSummary[ , 4],
   trainData = offline,
-  numAngles = 3,
+  numAngles = finalAngle,
   k = finalK,
   weighted = weighted
 )
