@@ -152,7 +152,7 @@ diffs = offlineSummary[,c("posX", "posY")] -  AP[ offlineSummary$mac, ]
 offlineSummary$dist = sqrt(diffs[ , 1]^2 + diffs[ , 2]^2)
 ggplot2::ggplot(data=offlineSummary,aes(x=dist, y=signal)) +
   geom_point(size=0.1) +
-  geom_smooth(method = 'glm')+
+  geom_smooth()+
   facet_grid(rows=vars(mac),cols=vars(paste0('angle ',angle))) +
   labs(x='Distance',y='Signal Strength') +
   ggthemes::theme_stata() 
@@ -203,7 +203,7 @@ diffs = offlineSummary[,c("posX", "posY")] -  AP[ offlineSummary$mac, ]
 offlineSummary$dist = sqrt(diffs[ , 1]^2 + diffs[ , 2]^2)
 ggplot2::ggplot(data=offlineSummary,aes(x=dist, y=-signal^2)) +
   geom_point(size=0.1) +
-  geom_smooth(method = 'glm')+
+  geom_smooth()+
   facet_grid(rows=vars(mac),cols=vars(paste0('angle ',angle))) +
   #ggplot2::scale_y_log10()+
   labs(x='Distance',y='Signal Strength') +
