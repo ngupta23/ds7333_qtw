@@ -34,7 +34,7 @@ weightFormula = function(x){ 1/(x ^ 2)} #inverse of sq distance
 
 # Keep only required MAC Addresses
 keepMacs = c(
-  '00:0f:a3:39:e1:c0', #default
+  #'00:0f:a3:39:e1:c0', #default
   '00:0f:a3:39:dd:cd', #added
   '00:14:bf:b1:97:8a',
   '00:14:bf:3b:c7:c6',

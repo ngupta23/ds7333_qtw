@@ -30,7 +30,7 @@ DIST_METHOD = 'Manhattan'
 errMethod = ifelse(DIST_METHOD == 'Manhattan','MSE','RMSE')
 
 #weightFormula = function(x){ 1/(x)} #inverse of distance
-weightFormula = function(x){ 1/(x ^ 2)} #inverse of sq distance
+weightFormula = function(x){ 1/(x ^ 2)} #invere of sq distance
 
 # Keep only required MAC Addresses
 keepMacs = c(
@@ -325,7 +325,72 @@ calcError = function(estXY, actualXY, method = DIST_METHOD){
 ```
 
 
+## Unweighted
 
+```{r}
+weighted = FALSE
+```
+
+```{r}
+estXYk3 = predXY(
+  newSignals = onlineSummary[ , 6:(6+numMacs-1)],
+  newAngles = onlineSummary$angle, 
+  trainData = offline,
+  numAngles = 3,
+  k = 3,
+  weighted = weighted
+)
+```
+
+```{r}
+estXYk1 = predXY(
+  newSignals = onlineSummary[ , 6:(6+numMacs-1)],
+  newAngles = onlineSummary$angle, 
+  trainData = offline,
+  numAngles = 3,
+  k = 1,
+  weighted = weighted
+)
+```
+
+```{r}
+actualXY = onlineSummary %>%  dplyr::select(posX, posY)
+sapply(list(estXYk1, estXYk3), calcError, actualXY)
+```
+
+
+## Weighted
+
+```{r}
+weighted = TRUE
+```
+
+```{r}
+estXYk3_weighted = predXY(
+  newSignals = onlineSummary[ , 6:(6+numMacs-1)],
+  newAngles = onlineSummary$angle, 
+  trainData = offline,
+  numAngles = 3,
+  k = 3,
+  weighted = weighted
+)
+```
+
+```{r}
+estXYk1_weighted = predXY(
+  newSignals = onlineSummary[ , 6:(6+numMacs-1)],
+  newAngles = onlineSummary$angle, 
+  trainData = offline,
+  numAngles = 3,
+  k = 1,
+  weighted = weighted
+)
+```
+
+```{r}
+actualXY = onlineSummary %>%  dplyr::select(posX, posY)
+sapply(list(estXYk1_weighted, estXYk3_weighted), calcError, actualXY)
+```
 
 # K-Fold 
 
@@ -587,7 +652,7 @@ plot_best = function(allErrors) {
 }
 ```
 
-# Unweighted
+### Unweighted
 ```{r}
 allErrorsCV = get_CV(K=K,v=v
                      ,offline=offline,onlineCVSummary=onlineCVSummary
@@ -612,7 +677,7 @@ plot_best(allErrors)
 ```
 
 
-## Final Model
+#### Final Model
 
 ```{r}
 final = filter(allErrors,oneSE)
@@ -646,7 +711,7 @@ estXYfinalK = predXY(
 calcError(estXYfinalK, actualXY)
 ```
 
-# Weighted
+### Weighted
 ```{r}
 allErrorsCVW = get_CV(K=K,v=v
                      ,offline=offline,onlineCVSummary=onlineCVSummary
@@ -666,7 +731,7 @@ plot_best(allErrorsW)
 
 
 
-## Final Model
+#### Final Model
 
 ```{r}
 
