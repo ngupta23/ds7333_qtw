@@ -150,7 +150,8 @@ AP = matrix( c( 7.5, 6.3, 2.5, -.8, 12.8, -2.8,
 
 diffs = offlineSummary[,c("posX", "posY")] -  AP[ offlineSummary$mac, ]
 offlineSummary$dist = sqrt(diffs[ , 1]^2 + diffs[ , 2]^2)
-ggplot2::ggplot(data=offlineSummary #filter(offlineSummary,angle==0 & mac=='00:0f:a3:39:e1:c0')
+ggplot2::ggplot(data=offlineSummary 
+                #data = filter(offlineSummary,angle %in% c(0,135,180) & mac %in% c('00:0f:a3:39:e1:c0','00:14:bf:b1:97:8a',  '00:14:bf:3b:c7:c6'))
                 ,aes(x=dist, y=signal)) +
   geom_point(size=0.1) +
   geom_smooth()+
@@ -202,13 +203,14 @@ AP = matrix( c( 7.5, 6.3, 2.5, -.8, 12.8, -2.8,
 
 diffs = offlineSummary[,c("posX", "posY")] -  AP[ offlineSummary$mac, ]
 offlineSummary$dist = sqrt(diffs[ , 1]^2 + diffs[ , 2]^2)
-ggplot2::ggplot(data=offlineSummary #filter(offlineSummary,angle==135 & mac=='00:0f:a3:39:e1:c0')
+ggplot2::ggplot(data=offlineSummary
+                #data=filter(offlineSummary,angle %in% c(0,135,180) & mac %in% c('00:0f:a3:39:e1:c0','00:14:bf:b1:97:8a',  '00:14:bf:3b:c7:c6'))
                 ,aes(x=1/dist^2, y=signal)) +
   geom_point(size=0.1) +
   geom_smooth()+
   facet_grid(rows=vars(mac),cols=vars(paste0('angle ',angle))) +
   ggplot2::scale_x_log10()+
-  labs(x='Distance',y='Signal Strength') +
+  labs(x='1/ Distance ^ 2',y='Signal Strength') +
   ggthemes::theme_stata() 
 #xyplot(signal ~ dist | factor(mac) + factor(angle),        data = offlineSummary, pch = 19, cex = 0.3,       xlab ="distance")
 ```
