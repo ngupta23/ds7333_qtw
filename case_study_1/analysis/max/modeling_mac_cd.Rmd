@@ -635,6 +635,8 @@ finalK
 ```
 
 ```{r}
+actualXY = onlineSummary %>%  dplyr::select(posX, posY)
+
 estXYfinalK = predXY(
   newSignals = onlineSummary[ , 6:(6+numMacs-1)],
   newAngles = onlineSummary[ , 4],
@@ -680,6 +682,9 @@ finalKW
 
 
 ```{r}
+actualXY = onlineSummary %>%  dplyr::select(posX, posY)
+
+
 estXYfinalKW = predXY(
   newSignals = onlineSummary[ , 6:(6+numMacs-1)],
   newAngles = onlineSummary[ , 4],

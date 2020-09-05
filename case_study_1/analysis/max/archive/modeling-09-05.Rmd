@@ -256,7 +256,7 @@ selectTrain = function(angleNewObs, train_data, m){
 #'         5th column is the inverse distance or weight (float). Weight is hard coded to 1 for all observations if weighted = FALSE
 findNN = function(newSignal, trainSubset, weighted=FALSE, method = DIST_METHOD) {
   diffs = apply(trainSubset[ , 4:(4+numMacs-1)], 1, function(x) x - newSignal)
-  if(method=='Euclidian')  dists = apply(diffs, 2, function(x) sqrt(sum(x^2)) ) #RSE
+  if(method=='Euclidean')  dists = apply(diffs, 2, function(x) sqrt(sum(x^2)) ) #RSE
   if(method=='Manhattan')  dists = apply(diffs, 2, function(x) sum(abs(x)) ) #AE
   closest = order(dists)
   
@@ -645,6 +645,7 @@ plot_best = function(allErrors) {
                          #,midpoint=median(Errors$errValue)
     )+
     #scale_fill_distiller(palette = "Blues",direction=0) +
+    labs(fill = errMethod) +
     geom_text(data=allErrors[allErrors$best,],label='Best',size=3,nudge_y=.27) +
     geom_text(data=allErrors[allErrors$oneSE,],label='1SE',size=3) 
   #p
