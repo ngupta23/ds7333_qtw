@@ -580,6 +580,7 @@ plot_best = function(allErrors) {
                          #,midpoint=median(Errors$errValue)
     )+
     #scale_fill_distiller(palette = "Blues",direction=0) +
+    labs(fill = errMethod) +
     geom_text(data=allErrors[allErrors$best,],label='Best',size=3,nudge_y=.27) +
     geom_text(data=allErrors[allErrors$oneSE,],label='1SE',size=3) 
   #p
