@@ -1,0 +1,211 @@
+---
+title: "Max_CS1"
+author: "Max Moro"
+date: "8/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+dataLoc = '../../data/'
+library(tidyverse)
+library(ggplot2)
+```
+
+# Read Data
+```{r}
+offline= readRDS(file.path(dataLoc,'offline.rds'))
+subMacs = names(sort(table(offline$mac), decreasing = TRUE))[1:7]
+
+online= readRDS(file.path(dataLoc,'online.rds'))
+
+```
+
+# Exploring
+
+## Signal vs. Angle
+
+```{r fig.height=7, fig.width=10}
+library(ggplot2)
+library(ggthemes)
+
+p=ggplot(data=filter(offline, mac != "00:0f:a3:39:dd:cd")
+         ,aes(y=signal,x=factor(angle))) +
+  ggplot2::geom_violin()+
+  labs(x='Angle')+
+  ggplot2::facet_wrap(vars(paste0('mac: ',mac))) +
+  ggthemes::theme_stata() 
+p
+
+```
+## Density Signal by MAC Angle
+
+```{r fig.height=15, fig.width=15}
+p=ggplot(data=filter(offline, mac != "00:0f:a3:39:dd:cd")
+         ,aes(x=signal) 
+         ) +
+  ggplot2::geom_density()+
+  ggplot2::facet_wrap(vars(mac,paste0('Angle:',angle)))+
+  ggthemes::theme_stata() 
+p
+
+
+```
+
+## SD Signal Strenth by Mean 
+
+```{r}
+byLocAngleAP = with(offline,
+                    by(offline, list(posXY, angle, mac),
+                       function(x) x))
+
+signalSummary =
+  lapply(byLocAngleAP,
+         function(oneLoc) {
+           ans = oneLoc[1, ]
+           ans$medSignal = median(oneLoc$signal)
+           ans$avgSignal = mean(oneLoc$signal)
+           ans$num = length(oneLoc$signal)
+           ans$sdSignal = sd(oneLoc$signal)
+           ans$iqrSignal = IQR(oneLoc$signal)
+           ans
+         })
+offlineSummary = do.call("rbind", signalSummary)
+
+offlineSummary[1:10]
+```
+
+
+```{r fig.height=5, fig.width=8}
+breaks = c(seq(-90, -30, by = 5),-10)
+p=ggplot(data=filter(offlineSummary, mac != "00:0f:a3:39:dd:cd"  )
+         ,aes(y=sdSignal,x=cut(avgSignal,breaks=breaks)) 
+         ) +
+  ggplot2::geom_boxplot()+
+  labs(x='Signal',y='St.Dev. of Signal')+
+  ggthemes::theme_stata() 
+
+  
+p
+```
+## Avg - Med Signal vs obs
+
+```{r}
+
+with(offlineSummary,
+     smoothScatter((avgSignal - medSignal) ~ num,
+                   xlab = "Number of Observations",
+                   ylab = "mean - median"))
+abline(h = 0, col = "#984ea3", lwd = 2)
+
+lo.obj =
+  with(offlineSummary,
+       loess(diff ~ num,
+             data = data.frame(diff = (avgSignal - medSignal),
+                               num = num)))
+
+lo.obj.pr = predict(lo.obj, newdata = data.frame(num = (70:120)))
+lines(x = 70:120, y = lo.obj.pr, col = "#4daf4a", lwd = 2)
+```
+
+## Signal and Distance
+
+```{r fig.height=8, fig.width=8}
+
+library(fields)
+surfaceSS = function(data, sel_mac, sel_angle = 45) {
+ 
+   oneAPAngle = filter(data, mac ==sel_mac & angle == sel_angle)
+  x=data.frame(oneAPAngle$posX,oneAPAngle$posY)
+  y=oneAPAngle$avgSignal
+  smoothSS = Tps(x,y)
+  vizSmooth = predictSurface(smoothSS)
+  plot.surface(vizSmooth, type = "C")
+  points(oneAPAngle$posX, oneAPAngle$posY, pch=19, cex = 0.5)
+}
+
+parCur = par(mfrow = c(2,2), mar = rep(1.5, 4))
+
+mapply(surfaceSS, 
+       sel_mac = subMacs[ rep(c(5, 1), each = 2) ], 
+       sel_angle = rep(c(0, 135), 2),
+       data = list(data = offlineSummary))
+
+par(parCur)
+
+```
+
+## Signal Strenghts vs Distance
+
+```{r fig.height=13, fig.width=13}
+
+offlineSummary = subset(offlineSummary, mac != subMacs[2])
+
+AP = matrix( c( 7.5, 6.3, 2.5, -.8, 12.8, -2.8,  
+                1, 14, 33.5, 9.3,  33.5, 2.8),
+            ncol = 2, byrow = TRUE,
+            dimnames = list(subMacs[ -2 ], c("x", "y") ))
+
+#AP
+
+diffs = offlineSummary[,c("posX", "posY")] -  AP[ offlineSummary$mac, ]
+offlineSummary$dist = sqrt(diffs[ , 1]^2 + diffs[ , 2]^2)
+ggplot2::ggplot(data=offlineSummary,aes(x=dist, y=signal)) +
+  geom_point(size=0.1) +
+  facet_grid(rows=vars(mac),cols=vars(paste0('angle ',angle))) +
+  labs(x='Distance',y='Signal Strength') +
+  ggthemes::theme_stata() 
+#xyplot(signal ~ dist | factor(mac) + factor(angle),        data = offlineSummary, pch = 19, cex = 0.3,       xlab ="distance")
+```
+
+## Signal and Distance
+
+```{r fig.height=8, fig.width=8}
+
+library(fields)
+surfaceSS = function(data, sel_mac, sel_angle = 45) {
+ 
+   oneAPAngle = filter(data, mac ==sel_mac & angle == sel_angle)
+  x=data.frame(oneAPAngle$posX,oneAPAngle$posY)
+  y=oneAPAngle$avgSignal
+  smoothSS = Tps(x,y)
+  vizSmooth = predictSurface(smoothSS)
+  plot.surface(vizSmooth, type = "C")
+  points(oneAPAngle$posX, oneAPAngle$posY, pch=19, cex = 0.5)
+}
+
+parCur = par(mfrow = c(2,2), mar = rep(1.5, 4))
+
+mapply(surfaceSS, 
+       sel_mac = subMacs[ rep(c(5, 1), each = 2) ], 
+       sel_angle = rep(c(0, 135), 2),
+       data = list(data = offlineSummary))
+
+par(parCur)
+
+```
+
+## Signal Strenghts Squared vs Distance
+
+```{r fig.height=13, fig.width=13}
+
+offlineSummary = subset(offlineSummary, mac != subMacs[2])
+
+AP = matrix( c( 7.5, 6.3, 2.5, -.8, 12.8, -2.8,  
+                1, 14, 33.5, 9.3,  33.5, 2.8),
+            ncol = 2, byrow = TRUE,
+            dimnames = list(subMacs[ -2 ], c("x", "y") ))
+
+#AP
+
+diffs = offlineSummary[,c("posX", "posY")] -  AP[ offlineSummary$mac, ]
+offlineSummary$dist = sqrt(diffs[ , 1]^2 + diffs[ , 2]^2)
+ggplot2::ggplot(data=offlineSummary,aes(x=dist, y=-signal^2)) +
+  geom_point(size=0.1) +
+  facet_grid(rows=vars(mac),cols=vars(paste0('angle ',angle))) +
+  #ggplot2::scale_y_log10()+
+  labs(x='Distance',y='Signal Strength') +
+  ggthemes::theme_stata() 
+#xyplot(signal ~ dist | factor(mac) + factor(angle),        data = offlineSummary, pch = 19, cex = 0.3,       xlab ="distance")
+```
+
