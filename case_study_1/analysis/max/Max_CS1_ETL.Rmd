@@ -164,7 +164,7 @@ length(unique(onlineOut$posXY))
 ```
 # Fixing 
 
-## Fixing Orientation
+## Fixing DAta
 ```{r}
 roundOrientation = function(angles) {
   refs = seq(0, by = 45, length = 9)
@@ -178,7 +178,12 @@ online$orientation=as.numeric(online$orientation)
 online$angle = roundOrientation(online$orientation)
 
 offline$posXY = paste(offline$posX, offline$posY, sep = "-")
+offline$posX = as.numeric(offline$posX)
+offline$posY = as.numeric(offline$posY )
+
 online$posXY = paste(online$posX, online$posY, sep = "-")
+online$posX = as.numeric(online$posX)
+online$posY = as.numeric(online$posY )
 ```
 
 
