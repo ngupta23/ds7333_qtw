@@ -2,15 +2,18 @@
 title: "EDA"
 author: "Nikhil Gupta"
 date: "`r Sys.time()`"
-always_allow_html: yes
 output:
   html_document:
-    toc: true
-    toc_float: true
+    toc: yes
+    toc_float: yes
     toc_depth: 6
   github_document:
-    toc: true
+    toc: yes
     toc_depth: 6
+  word_document:
+    toc: yes
+    toc_depth: '6'
+always_allow_html: yes
 ---
 
 ```{r setup, include=FALSE}
@@ -27,7 +30,7 @@ library(DT)
 ## Parameters
 ```{r}
 DIST_METHOD = 'Manhattan'
-errMethod = ifelse(DIST_METHOD == 'Manhattan','MSE','RMSE')
+errMethod = ifelse(DIST_METHOD == 'Manhattan','MAE','RMSE')
 
 #weightFormula = function(x){ 1/(x)} #inverse of distance
 weightFormula = function(x){ 1/(x ^ 2)} #inverse of sq distance
@@ -588,6 +591,34 @@ plot_best = function(allErrors) {
 }
 ```
 
+### Floor Plan plot 
+```{r}
+floorErrorMap = function(estXY, actualXY,method = DIST_METHOD){
+  
+  
+  if(method == 'Euclidean')  er = sqrt(rowSums((estXY - actualXY)^2))
+  if(method == 'Manhattan')  er = rowSums(abs(estXY - actualXY))
+  data = cbind(actualXY,er)
+  library(png)
+  library(ggpubr)
+  img <- png::readPNG('building.png')
+  p = ggplot(data=data,aes(x=posX,y=posY,color=er)) +
+    background_image(img) +
+    labs(x='X',y='Y',color='Error')+
+    ggplot2::scale_y_continuous(limits=c(-3.1,14.4))+
+    ggplot2::scale_x_continuous(limits=c(0,33.4))+
+    ggplot2::geom_point(shape=16,size=4) +
+    scale_color_gradient2(low = "green",mid='darkorange', high = "darkred", na.value = NA
+                          ,midpoint=mean(c(max(data$er),min(data$er)))
+                          #,midpoint=median(Errors$errValue)
+    )
+  return(p)
+    
+    
+}
+
+```
+
 # Unweighted
 ```{r}
 allErrorsCV = get_CV(K=K,v=v
@@ -647,6 +678,11 @@ estXYfinalK = predXY(
   weighted = FALSE
 )
 calcError(estXYfinalK, actualXY)
+
+```
+## OnLine Plot 
+```{r fig.width=10}
+floorErrorMap(estXY = estXYfinalK, actualXY = actualXY)
 ```
 
 # Weighted
@@ -696,3 +732,27 @@ estXYfinalKW = predXY(
 )
 calcError(estXYfinalKW, actualXY)
 ```
+## Online Plot
+
+```{r fig.width=10}
+floorErrorMap(estXY = estXYfinalKW, actualXY = actualXY)
+```
+# time of offline and online measures
+
+```{r}
+library(lubridate)
+offlineTime = offline$time /1000
+class(offlineTime) = c("POSIXt", "POSIXct")
+dfOffT= data.frame('hour'=hour(offlineTime) + lubridate::minute(offlineTime)/60) %>% count(hour)
+dfOffT$type = 'Offline'
+
+onlineTime = online$time /1000
+class(onlineTime) = c("POSIXt", "POSIXct")
+dfOnT= data.frame('hour'=hour(onlineTime)+ lubridate::minute(onlineTime)/60) %>% count(hour)
+dfOnT$type = 'Online'
+dfTime = rbind(dfOffT, dfOnT)
+ggplot(dfTime,aes(x=hour,y=n)) + geom_point() + ggtitle('Time of the day when measures where taken') +
+  facet_wrap(vars(type)) + labs(x='Hour of the Day',y='Count of measures')
+
+```
+

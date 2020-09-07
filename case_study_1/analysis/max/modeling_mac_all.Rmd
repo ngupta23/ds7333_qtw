@@ -27,7 +27,7 @@ library(DT)
 ## Parameters
 ```{r}
 DIST_METHOD = 'Manhattan' #'Euclidean' 'Manhattan'
-errMethod = ifelse(DIST_METHOD == 'Manhattan','MSE','RMSE')
+errMethod = ifelse(DIST_METHOD == 'Manhattan','MAE','RMSE')
 
 #weightFormula = function(x){ 1/(x)} #inverse of distance
 weightFormula = function(x){ 1/(x ^ 2)} #inverse of sq distance
@@ -588,6 +588,7 @@ plot_best = function(allErrors) {
 }
 ```
 
+
 # Unweighted
 ```{r}
 allErrorsCV = get_CV(K=K,v=v
@@ -622,17 +623,7 @@ finalAngle = final$numAngles
 finalK = final$numNeighbors
 finalAngle
 finalK
-# 
-# final = which(allErrors == min(allErrors), arr.ind = TRUE)
-# 
-# 
-# finalAngleIndex = final[1]
-# finalKIndex = final[2]
-# finalAngle = allAngles[finalAngleIndex]
-# finalK = allNeighbors[finalKIndex]
-# 
-# finalAngle
-# finalK
+#
 ```
 
 ```{r}

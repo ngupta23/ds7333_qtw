@@ -27,7 +27,7 @@ library(DT)
 ## Parameters
 ```{r}
 DIST_METHOD = 'Manhattan'
-errMethod = ifelse(DIST_METHOD == 'Manhattan','MSE','RMSE')
+errMethod = ifelse(DIST_METHOD == 'Manhattan','MAE','RMSE')
 
 #weightFormula = function(x){ 1/(x)} #inverse of distance
 weightFormula = function(x){ 1/(x ^ 2)} #inverse of sq distance
