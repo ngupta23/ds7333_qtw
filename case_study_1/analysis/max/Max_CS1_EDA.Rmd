@@ -22,6 +22,15 @@ online= readRDS(file.path(dataLoc,'online.rds'))
 ```
 
 # Exploring
+## Orientation vs. Nearest Angle
+
+```{r}
+with(offline, boxplot(
+  orientation ~ angle,
+  xlab = "nearest 45 degree angle",
+  ylab="orientation")
+)
+```
 
 ## Signal vs. Angle
 

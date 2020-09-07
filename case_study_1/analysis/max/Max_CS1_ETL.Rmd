@@ -97,6 +97,22 @@ offlineOut$nas = rowSums(is.na(offlineOut))
 # View the final data frame
 offlineOut
 ```
+# Check missing values
+```{r}
+library(foreach)
+missing = foreach(m = keepMacs,.combine=rbind) %do% {
+  t=data.frame('MAC'=m)
+  t$Expected_Records = nrow(offlineOut)
+  t$Available_Records = sum(!is.na(offlineOut[[m]]))
+  t$Missing_Records = sum(is.na(offlineOut[[m]]))
+  return(t)
+}
+missing$'% Missing' = missing$Missing_Records / missing$Expected_Records * 100
+missing
+
+```
+
+
 # Online DAta
 
 ```{r}

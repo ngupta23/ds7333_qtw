@@ -1,0 +1,212 @@
+---
+title: "Max_CS1_ETL"
+author: "Gupta, Moro, Kannan"
+date: "8/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+dataLoc = '../../data/'
+
+processLine = function(x) {
+  tokens = strsplit(x, "[;=,]")[[1]]
+  if (length(tokens) == 10) return(NULL)
+  tmp = matrix(tokens[ - (1:10) ],ncol= 4, byrow = TRUE)
+
+  cbind(matrix(tokens[c(2, 4, 6:8, 10)], nrow(tmp), 6,
+               byrow = TRUE), tmp)
+}
+
+```
+
+#  Offline Data
+
+```{r}
+txt = readLines(file.path(dataLoc, "offline.final.trace.txt"))
+lines = txt[ substr(txt, 1, 1) != "#" ]
+tmp = lapply(lines, processLine)
+
+# Convert the offline data to a data frame
+offline = as.data.frame(do.call("rbind", tmp),stringsAsFactors = FALSE)
+# Assign column names to the offline data frame
+names(offline) = c("time", "scanMac", "posX", "posY", "posZ",
+                   "orientation", "mac", "signal",
+                   "channel", "type")
+head(offline)
+# Observe one observation from the offline data frame
+offline[offline$time==1139643118358,]
+```
+
+## Checking Data
+
+```{r}
+
+library(tidyverse)
+library(magrittr)
+
+# View the data frame exclusive of the scanMac, channel, and type columns
+head(select(offline,-c(scanMac,channel,type)),10)
+
+
+# See if any observations have a posZ-value not equal to 0.0
+head(offline[offline['posZ']!='0.0',],10)
+
+```
+
+## Get MACs
+
+```{r}
+#full list of mac values and their types (we are interested in type == 3)
+macTypeDF <- unique(select(offline, c(mac,type)))
+macTypeDF[order(macTypeDF$type),]
+
+# List the unique mac values
+vals = data.frame(table(offline['mac']))
+vals[order(-vals$Freq),]
+
+valsUpdated <- vals %>% inner_join(macTypeDF, by = c("Var1" = "mac"))
+valsUpdated <- valsUpdated[order(valsUpdated$type, -valsUpdated$Freq),]
+
+offline$signal %<>% as.integer
+
+offline <- offline[offline$type != 1, ]
+
+keepMacs <- c('00:0f:a3:39:e1:c0',
+              '00:0f:a3:39:dd:cd',
+              '00:14:bf:b1:97:8a',
+              '00:14:bf:3b:c7:c6',
+              '00:14:bf:b1:97:90',
+              '00:14:bf:b1:97:8d',
+              '00:14:bf:b1:97:81'
+              )
+
+offline <- offline[offline$mac %in% keepMacs ,]
+
+```
+## Make Wider
+```{r}
+
+
+# Pivot the data frame (or cast it; make it wider) but putting the mac values and their associated signals in the columns
+offlineOut = select(offline, -c(channel,scanMac,type)) %>% 
+  pivot_wider(names_from = mac,values_from = signal, values_fn = list(signal=mean))
+
+offlineOut$nas = rowSums(is.na(offlineOut))
+
+# View the final data frame
+head(offlineOut,10)
+```
+# Check missing values
+```{r}
+library(foreach)
+missing = foreach(m = keepMacs,.combine=rbind) %do% {
+  t=data.frame('MAC'=m)
+  t$Expected_Records = nrow(offlineOut)
+  t$Available_Records = sum(!is.na(offlineOut[[m]]))
+  t$Missing_Records = sum(is.na(offlineOut[[m]]))
+  return(t)
+}
+missing$'% Missing' = missing$Missing_Records / missing$Expected_Records * 100
+missing
+
+```
+
+
+# Online DAta
+
+```{r}
+# Process the online data
+onlineTxt = readLines(file.path(dataLoc,"online.final.trace.txt"))
+
+onlineLines = onlineTxt[ substr(onlineTxt, 1, 1) != "#" ]
+onlineTmp = lapply(onlineLines, processLine)
+
+# Convert the online data to a data frame
+online = as.data.frame(do.call("rbind", onlineTmp),stringsAsFactors = FALSE)
+
+names(online) = c("time", "scanMac", "posX", "posY", "posZ",
+                   "orientation", "mac", "signal",
+                   "channel", "type")
+
+head(online)
+
+# View the data frame exclusive of the scanMac, channel, and type columns
+head(select(online,-c(scanMac,channel,type)),10)
+```
+## Check Data
+```{r}
+
+# See if any observations have a posZ-value not equal to 0.0
+online[online['posZ']!='0.0',]
+```
+
+## Get MACs
+
+```{r}
+
+
+# List the unique mac values and their frequencies in the offline data frame
+onlineVals = data.frame(table(online['mac']))
+onlineVals[order(-onlineVals$Freq),]
+
+online$signal %<>% as.integer
+
+online <- online[online$mac %in% keepMacs ,]
+```
+## Make Wider
+```{r}
+
+# Pivot the data frame (or cast it; make it wider) but putting the mac values and their associated signals in the columns
+onlineOut<-select(online, -c(channel,scanMac,type)) %>% pivot_wider(names_from = mac,values_from = signal, values_fn = list(signal=mean))
+
+onlineOut$nas<-rowSums(is.na(onlineOut))
+
+# View the final data frame
+head(onlineOut)
+```
+
+## Cehcking Dimension
+```{r}
+
+
+offlineOut$posXY <- paste(offlineOut$posX, offlineOut$posY, sep="-")
+length(unique(offlineOut$posXY))
+
+onlineOut$posXY <- paste(onlineOut$posX, onlineOut$posY, sep="-")
+length(unique(onlineOut$posXY))
+
+
+```
+# Fixing 
+
+## Fixing DAta
+```{r}
+roundOrientation = function(angles) {
+  refs = seq(0, by = 45, length = 9)
+  q = sapply(angles, function(o) which.min(abs(o - refs)))
+  c(refs[1:8], 0)[q]
+}
+offline$orientation=as.numeric(offline$orientation)
+offline$angle = roundOrientation(offline$orientation)
+
+online$orientation=as.numeric(online$orientation)
+online$angle = roundOrientation(online$orientation)
+
+offline$posXY = paste(offline$posX, offline$posY, sep = "-")
+offline$posX = as.numeric(offline$posX)
+offline$posY = as.numeric(offline$posY )
+
+online$posXY = paste(online$posX, online$posY, sep = "-")
+online$posX = as.numeric(online$posX)
+online$posY = as.numeric(online$posY )
+```
+
+
+# Saving
+```{r}
+
+saveRDS(offline,file=file.path(dataLoc,'offline.rds'))
+saveRDS(online,file=file.path(dataLoc,'online.rds'))
+```
+
