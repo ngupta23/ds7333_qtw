@@ -364,7 +364,7 @@ head(onlineSummary)
 ```{r}
 keepVars = c("posXY", "posX","posY", "orientation", "angle")
 onlineCVSummary = reshapeSS(offline, keepVars = keepVars, sampleAngle = TRUE)
-onlineCVSummary
+head(onlineCVSummary)
 ```
 
 ```{r}
