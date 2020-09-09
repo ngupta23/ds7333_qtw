@@ -1,0 +1,108 @@
+---
+title: "MaxCs2"
+author: "Max Moro"
+date: "9/9/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(hms)
+library(rvest)
+library(lubridate)
+library(foreach)
+library(stringr)
+library(iterators)
+
+years = c(1992:2012)
+division = 'Overall+Women' #'Overall+Men"
+section = '10M' 
+```
+
+```{r}
+getLink = function(year,division,section,page=1){
+  paste0( 'http://www.cballtimeresults.org/performances'
+          ,'?utf8=%E2%9C%93&section=',section
+          ,'&year=',year,'&division=',division,'&page=', page)
+}
+
+getTable = function(year,division,section,page){
+  link=getLink(year,division,section,page=page)
+  
+  t=read_html(link)  %>% 
+    html_nodes("table")  %>% 
+    html_table(fill=TRUE) 
+  out = t[[1]] %>%
+    mutate(year=year, division=division, section=section, page=page, link=link)
+}
+
+getTables  = function(years,division,section){
+  library(progress)
+  library(doParallel)
+  library(doSNOW)
+  cl <- makeCluster(detectCores())
+  doSNOW::registerDoSNOW(cl)
+  
+  pb <- progress::progress_bar$new(total = length(years),format='[:bar] :percent :eta')
+  progress <- function(n) pb$tick()
+  
+  dataRaw=NULL
+  dataRaw = foreach(y=years
+                    ,.combine=rbind,.export=c('getTable','getLink')
+                    ,.options.snow = list(progress=progress)) %dopar%
+    {
+      library(foreach)
+      library(rvest)
+      library(dplyr)
+      isCompleted=FALSE
+      dataRaw=foreach(p=c(1:1000),.combine=rbind) %do%
+        if(!isCompleted) {
+          message('getting year:',y, ' page:',p,appendLF = F)
+          table = getTable(year=y
+                           ,division=division
+                           ,section=section
+                           ,page=p)
+          message(' rows:',nrow(table))
+          isCompleted = nrow(table)==0
+          return(table)
+        }
+      return(dataRaw)
+    }
+  stopCluster(cl)
+  data = dataRaw %>%
+    separate(col='Name',c('Name','Gender'),sep='[\\(\\)]',extra='drop',remove=TRUE) %>%
+    separate(col='PiS/TiS',c('PiS','TiS'),sep='\\/',extra='drop',remove=TRUE) %>%
+    separate(col='PiD/TiD',c('PiD','TiD'),sep='\\/',extra='drop',remove=TRUE) %>%
+    separate(col='Hometown',c('Hometown','Home State'),sep=',',extra='drop',remove=TRUE,fill='right') %>%
+    mutate(Race = trimws(substr(Race,5,100))
+           ,DivisionCode =  trimws(substr(Division,1,1))
+           ,DivisionNum =  trimws(substr(Division,3,100))
+           ,Time = lubridate::hms(Time)
+           ,TimeMins = second(Time)/60 + minute(Time)  + hour(Time)*60
+           ,Pace = lubridate::ms(Pace)
+           ,PaceMins = second(Pace)/60 + minute(Pace)  + hour(Pace)*60
+           ,Age = as.numeric(Age)
+           ,PiS = as.numeric(PiS)
+           ,TiS = as.numeric(TiS)
+           ,PiD = as.numeric(PiD)
+           ,TiD = as.numeric(TiD)
+    )
+  return(data) 
+}
+
+```
+
+```{r}
+if(F){
+  data=getTables(years=years,division = division,section=section)
+  saveRDS(data,file='../../data/data.rds')
+} else{
+  data=readRDS(file='../../data/data.rds')
+}
+head(data)
+data %>%
+  group_by(year) %>%
+  summarize(rows = n())
+```
+
