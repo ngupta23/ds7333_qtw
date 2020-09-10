@@ -1,0 +1,698 @@
+---
+title: "EDA"
+author: "Nikhil Gupta"
+date: "`r Sys.time()`"
+always_allow_html: yes
+output:
+  github_document:
+    toc: true
+    toc_depth: 6
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(magrittr)
+```
+
+# Process the offline data
+
+## Raw Data
+
+```{r}
+offline_file = "../../data/offline.final.trace.txt"
+online_file = "../../data/online.final.trace.txt"
+```
+
+```{r}
+# Read in the raw "offline" text file
+txt = readLines(offline_file)
+```
+
+
+### Processing the Raw Data
+```{r}
+# Matched the one in the text book.
+sum(substr(txt, 1, 1) == "#") 
+length(txt)
+```
+
+Checking the number of lines (151,392 lines in the offline file): "According to the documentation we expect there to be 146,080 lines in the file (166 locations x 8 angles x 110 recordings). The difference between these two (151,392 and 146,080) is 5,312, exactly the number of comments lines."
+
+```{r}
+strsplit(txt[4], ";")[[1]]
+```
+
+
+```{r}
+# Create a function to parse the data
+processLine = function(x){
+  # Split up the line on ';', '=' and ','
+  tokens = strsplit(x, "[;=,]")[[1]]
+  
+  # The hand held device (the one for which we need to determine the position)
+  # infromation is contained in the 1st 10 tokens (refer to book page 9)
+  # If no scanned signal values, return NULL
+  if (length(tokens) == 10) {
+    return(NULL)
+  }
+  
+  # The tokens after the 10th one represent the signal strength at the access points (book page 9). 
+  # Split up the tokens into individual measurements (each measurement contains 4 data points)
+  # 4 points are: MAC address, Signal, Channel and Device Type
+  # Device Type 3 is what is important (book page 6)
+  tmp = matrix(data = tokens[ - (1:10) ], ncol = 4, byrow = TRUE)
+  
+  # Combine signal measurement with the h
+  cbind(matrix(tokens[c(2, 4, 6:8, 10)], nrow(tmp), 6, byrow = TRUE), tmp)
+}
+
+lines = txt[substr(txt, 1, 1) != "#" ]
+tmp = lapply(lines, processLine)
+
+```
+
+
+```{r}
+# Convert the offline data to a data frame
+offline = as.data.frame(do.call("rbind", tmp), stringsAsFactors = FALSE)
+head(offline)
+```
+
+## Cleaning the Data and Building a Representation for Analysis
+
+```{r}
+# Assign column names to the offline data frame
+names(offline) = c("time", "scanMac", "posX", "posY", "posZ",
+                   "orientation", "mac", "signal",
+                   "channel", "type")
+
+numVars = c("time", "posX", "posY", "posZ", "orientation", "signal")
+offline[numVars] = lapply(offline[numVars], as.numeric)
+
+head(offline)
+```
+
+**time, scanMac, posX, posY, posZ, orientation is related to the handheld device**
+**mac, signal, channel, type refer to the access points**
+
+```{r}
+# type = 1 is an adhoc device
+table(offline$type)
+```
+
+```{r}
+# Observe one observation from the offline data frame
+offline[offline$time==1139643118358,]
+```
+
+```{r}
+# View the data frame exclusive of the scanMac, channel, and type columns
+select(offline,-c(scanMac,channel,type))
+```
+
+```{r}
+# See if any observations have a posZ-value not equal to 0.0
+offline[offline['posZ'] != 0, ]
+```
+
+```{r}
+# Get a full list of mac values and their types (we are interested in type == 3)
+macTypeDF = unique(select(offline, c(mac, type)))
+macTypeDF[order(macTypeDF$type),]
+```
+
+```{r}
+# List the unique mac values
+vals = data.frame(table(offline['mac']))
+vals[order(-vals$Freq),]
+```
+
+```{r}
+valsUpdated = vals %>% inner_join(macTypeDF, by = c("Var1" = "mac"))
+valsUpdated = valsUpdated[order(valsUpdated$type, -valsUpdated$Freq),]
+valsUpdated
+```
+
+
+```{r}
+# Keep only required MAC Addresses
+
+# offline$signal %<>% as.integer # Not needed since we converted to double above
+offline = offline[offline$type != 1, ]
+
+keepMacs = c(
+  '00:0f:a3:39:e1:c0',
+  # '00:0f:a3:39:dd:cd',
+  '00:14:bf:b1:97:8a',
+  '00:14:bf:3b:c7:c6',
+  '00:14:bf:b1:97:90',
+  '00:14:bf:b1:97:8d',
+  '00:14:bf:b1:97:81'
+)
+
+offline = offline[offline$mac %in% keepMacs, ]
+```
+
+```{r}
+dim(offline)
+```
+
+```{r}
+# # From book page 13
+# offline$rawTime = offline$time
+# offline$time = offline$time/1000
+# class(offline$time) = c("POSIXt", "POSIXct")
+```
+
+```{r}
+unlist(lapply(offline, class))
+```
+
+```{r}
+summary(offline[, numVars])
+```
+
+
+### Exploring MAC address
+
+```{r}
+summary(sapply(offline[ , c("mac", "channel", "scanMac")], as.factor))
+# MAC address starting with ...
+# "00:14:bf" --> Linksys/Cisco devices
+# "00:0f:a3" --> Alpha Networks
+# "00:a0:57" --> Lancom devices (not present here)
+```
+
+```{r}
+c(length(unique(offline$mac)), length(unique(offline$channel)))
+```
+
+**From book**
+
+* **There is only one value for scanMac, the MAC address for the hand-held device from which the measurements were taken. We might as well discard this variable from our data frame. However, we may want to note this value to compare it with the online data.**
+* **All of the values for posZ, the elevation of the hand-held device, are 0. This is because all of the measurements were taken on one floor of the building. We can eliminate this variable also.**
+
+```{r}
+offline = offline[ , !(names(offline) %in% c("scanMac", "posZ"))]
+```
+
+### Exploring Orientation
+
+```{r}
+length(unique(offline$orientation))
+```
+
+```{r}
+plot(ecdf(offline$orientation))
+```
+
+```{r}
+roundOrientation = function(angles) {
+  refs = seq(0, by = 45, length = 9)
+  q = sapply(angles, function(o) which.min(abs(o - refs)))
+    c(refs[1:8], 0)[q]
+  }
+
+offline$angle = roundOrientation(offline$orientation)
+```
+
+```{r}
+with(offline, boxplot(
+  orientation ~ angle,
+  xlab = "nearest 45 degree angle",
+  ylab="orientation")
+)
+```
+
+### Exploring the Position of the Hand-Held Device
+
+```{r}
+locCounts = offline %>% 
+  dplyr::group_by(posX, posY) %>% 
+  count()
+locCounts
+```
+
+```{r}
+plot(locCounts)
+text(locCounts, labels = locCounts[,3], cex = .8, srt = 45)
+```
+
+### Response Variable: Signal Strength Analysis
+
+* Does signal strength behave similarly at all locations? 
+* Or does, the location, orientation, and access point affect this distribution?
+
+
+#### Distribution of Signal Strength
+
+We consider the impact of orientation on signal strength by fixing a location on the
+map to see how the signal changes as the experimenter rotates through the 8 angles. We
+also separately examine the MAC addresses because, for example, at an orientation of 90
+degrees the experimenter may be facing toward one access point and away from another.
+
+```{r}
+library(lattice)
+bwplot(
+  signal ~ factor(angle) | mac,
+  data = offline,
+  subset = posX == 2 & posY == 12 & mac != "00:0f:a3:39:dd:cd",
+  layout = c(2,3)
+)
+```
+
+The dependence of signal strength on angle is evident at several of the access points,
+e.g., in the top right panel of the figure 00:14:bf:97:90
+
+```{r fig.height=12, fig.width=12}
+densityplot(
+  ~ signal | mac + factor(angle),
+  data = offline,
+  subset = posX == 24 & posY == 4 & mac != "00:0f:a3:39:dd:cd",
+  bw = 0.5, plot.points = FALSE
+)
+```
+
+#### Relationship between Signal and Distance
+
+```{r}
+# TODO: See text book and try to replicate
+```
+
+
+```{r}
+# Pivot the data frame (or cast it; make it wider) but putting the mac values and their associated signals in the columns
+# This puts the features as columns so that it can be used for KNN
+offlineOut = select(offline, -c(time, channel, type, orientation)) %>%
+  pivot_wider(names_from = mac, values_from = signal, values_fn = list(signal=mean))
+
+# offlineOut$nas = rowSums(is.na(offlineOut))
+
+# View the final data frame
+offlineOut
+```
+
+The function averages the signal strengths for the each angle to produce one set of signal strengths for each of the 166 locations in the training data. (166*8=1328)
+
+```{r}
+summary(offlineOut)
+```
+
+## readData()
+
+```{r}
+#' @description Function to read the data, clean it and process it into an appropriate format
+#' @param file Filename to be read in
+#' @param keepMacs a list of MAC addresses to keep
+#' @returns A dataframe 
+readData = function(file, keepMacs=NULL){
+  # Read in the raw "offline" text file
+  txt = readLines(file)
+  
+  ##############################
+  #### Process the raw data ####
+  ##############################
+  
+  # Parse the data
+  lines = txt[substr(txt, 1, 1) != "#" ]
+  tmp = lapply(lines, processLine)
+  
+  # Convert the data to a data frame
+  data = as.data.frame(do.call("rbind", tmp), stringsAsFactors = FALSE)
+
+  ######################################################################
+  #### Cleaning the Data and Building a Representation for Analysis ####
+  ######################################################################
+  
+  # Assign column names to the offline data frame
+  names(data) = c("time", "scanMac", "posX", "posY", "posZ",
+                     "orientation", "mac", "signal",
+                     "channel", "type")
+  
+  numVars = c("time", "posX", "posY", "posZ", "orientation", "signal")
+  data[numVars] = lapply(data[numVars], as.numeric)
+  
+  # Keep only required device types (remove adhoc)
+  data = data[data$type != 1, ]
+
+  # Keep only required MAC Addresses
+  data = data[data$mac %in% keepMacs, ]
+  
+  # From book page 13
+  data$rawTime = data$time
+  data$time = data$time/1000
+  class(data$time) = c("POSIXt", "POSIXct")
+  
+  # Discard unwanted columns that dont add any additional information
+  data = data[ , !(names(data) %in% c("scanMac", "posZ"))]
+
+  # Cleanup Orientation
+  data$angle = roundOrientation(data$orientation)
+  
+  return(data)
+}
+```
+
+
+```{r}
+offlineRedo = readData(file = offline_file, keepMacs = keepMacs)
+identical(offline, offlineRedo)
+```
+
+```{r}
+dim(offline)
+dim(offlineRedo)
+```
+
+
+```{r}
+tall2wide = function(data){
+  # Pivot the data frame (or cast it; make it wider) but putting the mac values and their associated signals in the columns
+  # This puts the features as columns so that it can be used for KNN
+  data = data %>% 
+    select(-c(time, rawTime, channel, type, orientation)) %>%
+    pivot_wider(names_from = mac, values_from = signal, values_fn = list(signal=mean))
+  
+  # data$nas = rowSums(is.na(data))
+  
+  # View the final data frame
+  return(data)
+}
+```
+
+
+```{r}
+offlineOutRedo = tall2wide(data = offlineRedo)
+identical(offlineOut, offlineOutRedo)
+```
+
+```{r}
+offlineOutRedo
+```
+
+```{r}
+summary(offlineOut)
+```
+
+
+# Process the online data
+
+```{r}
+# macs = unique(offlineRedo$mac)
+onlineRedo = readData(file = online_file, keepMacs = keepMacs)
+dim(onlineRedo)
+```
+
+```{r}
+onlineRedo$posXY = paste(onlineRedo$posX, onlineRedo$posY, sep = "-")
+length(unique(onlineRedo$posXY))
+```
+
+```{r}
+tabonlineXYA = table(onlineRedo$posXY, onlineRedo$angle)
+tabonlineXYA[1:6, ]
+```
+
+**This output indicates that signal strengths were recorded at one orientation for each location.**
+
+```{r}
+onlineOutRedo = tall2wide(data = onlineRedo %>% dplyr::select(-posXY))
+onlineOutRedo
+```
+
+```{r}
+summary(onlineOutRedo)
+```
+
+```{r}
+train_full = offlineOutRedo
+test_full = onlineOutRedo
+dim(train_full)
+dim(test_full)
+```
+
+# Select Train Data
+
+```{r}
+#' @description Selectes the appropriate observations (based on test data orientation) from the original tall data
+#' and reformats it such that it can be used for training the KNN algorithm
+#' @param angleNewObs Angle (Orientation) of the test observation
+#' @param train_data Original tall-skinny data
+#' @param m Keep the 'm' closest orientations to angleNewObs 
+#' @param collapse Merge the signal strength for all the angles at a single location (using mean)
+#' @returns A dataframe suitable for training
+selectTrain = function(angleNewObs, train_data, m, collapse = TRUE){
+  
+  # Find the angles to keep
+  if (m %% 2 == 1) {
+    angles = seq(-45 * (m - 1) /2, 45 * (m - 1) /2, length = m)
+  } else {
+    m = m + 1
+    angles = seq(-45 * (m - 1) /2, 45 * (m - 1) /2, length = m)
+    if (sign(angleNewObs - nearestAngle) > -1)
+      angles = angles[ -1 ]
+    else
+      angles = angles[ -m ]
+  }
+  
+  nearestAngle = roundOrientation(angles = angleNewObs)
+  angles = angles + nearestAngle
+  angles[angles < 0] = angles[ angles < 0 ] + 360
+  angles[angles > 360] = angles[ angles > 360 ] - 360
+  
+  # print(paste("Angles Chosen = ", paste(angles, collapse=", "), sep = ""))
+  
+  # Subset only those angles from original data (tall-skinny)
+  train_data_subset = train_data[train_data$angle %in% angles, ]
+  
+  # Convert to Wide and average 
+  train_data_subset = tall2wide(data = train_data_subset)
+  
+  # Collapse if necessary
+  if(collapse == TRUE){
+    train_data_subset = train_data_subset %>% 
+      dplyr::select(-angle) %>% 
+      group_by(posX, posY) %>% 
+      summarise_all(mean)
+  }
+  return(train_data_subset)
+}
+```
+
+
+```{r}
+train_130_3_TRUE = selectTrain(angleNewObs = 130, train_data = offlineRedo, m = 3, collapse = TRUE)
+dim(train_130_3_TRUE)
+summary(train_130_3_TRUE)
+```
+
+```{r}
+head(train_130_3_TRUE)
+```
+
+```{r}
+train_130_3_FALSE = selectTrain(angleNewObs = 130, train_data = offlineRedo, m = 3, collapse = FALSE)
+dim(train_130_3_FALSE)
+summary(train_130_3_FALSE)
+```
+
+```{r}
+head(train_130_3_FALSE)
+```
+
+```{r}
+train_130_1_TRUE = selectTrain(angleNewObs = 130, train_data = offlineRedo, m = 1, collapse = TRUE)
+dim(train_130_1_TRUE)
+summary(train_130_1_TRUE)
+```
+
+```{r}
+head(train_130_1_TRUE)
+```
+
+```{r}
+train_130_1_FALSE = selectTrain(angleNewObs = 130, train_data = offlineRedo, m = 1, collapse = FALSE)
+dim(train_130_1_FALSE)
+summary(train_130_1_FALSE)
+```
+
+```{r}
+head(train_130_1_FALSE)
+```
+
+```{r}
+train_130_1_TRUE %>% arrange(posX, posY)
+```
+
+```{r}
+train_130_1_FALSE %>% arrange(posX, posY) %>% dplyr::select(-angle)
+```
+
+# Nearest Neighbors
+
+```{r}
+findNN = function(newSignal, trainSubset) {
+  diffs = apply(trainSubset[ , 2:7], 1, function(x) x - newSignal)
+  dists = apply(diffs, 2, function(x) sqrt(sum(x^2)) )
+  closest = order(dists)
+  return(trainSubset[closest, 1:2])
+}
+
+predXY = function(newSignals, newAngles, trainData, numAngles = 1, k = 3){
+  closeXY = list(length = nrow(newSignals))
+  for (i in 1:nrow(newSignals)) {
+    trainSS = selectTrain(newAngles[i], trainData, m = numAngles)
+    closeXY[[i]] = findNN(
+      newSignal = as.numeric(newSignals[i, ]),
+      trainSubset = trainSS
+    )
+  }
+  estXY = lapply(closeXY, function(x) sapply(x[ , 1:2], function(x) mean(x[1:k])))
+  estXY = do.call("rbind", estXY)
+  return(estXY)
+}
+```
+
+```{r}
+test_full
+```
+
+```{r}
+offlineRedo
+```
+
+```{r}
+estXYk3 = predXY(
+  newSignals = test_full[ , 4:9],
+  newAngles = test_full$angle, 
+  trainData = offlineRedo,
+  numAngles = 3,
+  k = 3
+)
+```
+
+```{r}
+estXYk1 = predXY(
+  newSignals = test_full[ , 4:9],
+  newAngles = test_full$angle, 
+  trainData = offlineRedo,
+  numAngles = 3,
+  k = 1
+)
+```
+
+```{r}
+test_full
+```
+
+```{r}
+estXYk1[1:10, ]
+```
+
+```{r}
+calcError = function(estXY, actualXY){
+  sum( rowSums( (estXY - actualXY)^2) )  
+}
+```
+
+```{r}
+actualXY = test_full %>%  dplyr::select(posX, posY)
+sqrt(sapply(list(estXYk1, estXYk3), calcError, actualXY))
+```
+
+
+# Backup
+
+```{r}
+# onlineTxt = readLines("../../data/online.final.trace.txt")
+# 
+# onlineLines = onlineTxt[ substr(onlineTxt, 1, 1) != "#" ]
+# onlineTmp = lapply(onlineLines, processLine)
+```
+
+```{r}
+# # Convert the online data to a data frame
+# online = as.data.frame(do.call("rbind", onlineTmp), stringsAsFactors = FALSE)
+# names(online) = c(
+#   "time", "scanMac", "posX", "posY", "posZ",
+#   "orientation", "mac", "signal",
+#   "channel", "type")
+# 
+# head(online)
+```
+
+```{r}
+# # View the data frame exclusive of the scanMac, channel, and type columns
+# select(online,-c(scanMac,channel,type))
+```
+
+* There are 60 test (online) reference points, and each points measurement has been taken 110 times for each of thesethese reference points (not necessarily at each orientation)
+
+60 * 110 = 6600
+
+```{r}
+# # See if any observations have a posZ-value not equal to 0.0
+# online[online['posZ']!='0.0',]
+```
+
+```{r}
+# # List the unique mac values and their frequencies in the offline data frame
+# onlineVals = data.frame(table(online['mac']))
+# onlineVals[order(-onlineVals$Freq),]
+```
+
+```{r}
+# online$signal %<>% as.integer
+# online = online[online$mac %in% keepMacs ,]
+```
+
+```{r}
+# # Pivot the data frame (or cast it; make it wider) but putting the mac values and their associated signals in the columns
+# onlineOut<-select(online, -c(channel,scanMac,type)) %>% pivot_wider(names_from = mac,values_from = signal, values_fn = list(signal=mean))
+# 
+# onlineOut$nas<-rowSums(is.na(onlineOut))
+# 
+# # View the final data frame
+# onlineOut
+```
+
+```{r}
+# # 166 unique Train Points
+# offlineOut$posXY = paste(offlineOut$posX, offlineOut$posY, sep="-")
+# length(unique(offlineOut$posXY))
+```
+
+```{r}
+# # 66 unique Test Points
+# onlineOut$posXY = paste(onlineOut$posX, onlineOut$posY, sep="-")
+# length(unique(onlineOut$posXY))
+```
+
+```{r}
+# # Check measurements per orientation for each of the 166 access points
+# # Some orientations are off slightly so you will get more than 166*8 rows
+# offlineOut %>% 
+#   group_by(posX, posY, orientation) %>% 
+#   count()
+```
+
+```{r}
+# # Check measurements per orientation for each of the 166 access points
+# # This is with the rounded orientation
+# offlineOut %>% 
+#   group_by(posX, posY, angle) %>% 
+#   count()
+```
+
+```{r}
+# offlineOut %>% 
+#   dplyr::filter(posX == 0, posY == 0, angle == 0)
+```

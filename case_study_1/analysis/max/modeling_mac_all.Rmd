@@ -1,0 +1,689 @@
+---
+title: "EDA"
+author: "Nikhil Gupta"
+date: "`r Sys.time()`"
+always_allow_html: yes
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 6
+  github_document:
+    toc: true
+    toc_depth: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(magrittr)
+library(plotly)
+library(DT)
+```
+
+## Parameters
+```{r}
+DIST_METHOD = 'Manhattan' #'Euclidean' 'Manhattan'
+errMethod = ifelse(DIST_METHOD == 'Manhattan','MAE','RMSE')
+
+#weightFormula = function(x){ 1/(x)} #inverse of distance
+weightFormula = function(x){ 1/(x ^ 2)} #inverse of sq distance
+
+# Keep only required MAC Addresses
+keepMacs = c(
+  '00:0f:a3:39:e1:c0', #default
+  '00:0f:a3:39:dd:cd', #added
+  '00:14:bf:b1:97:8a',
+  '00:14:bf:3b:c7:c6',
+  '00:14:bf:b1:97:90',
+  '00:14:bf:b1:97:8d',
+  '00:14:bf:b1:97:81'
+)
+
+```
+
+## Files
+```{r}
+offline_file = "../../data/offline.final.trace.txt"
+online_file = "../../data/online.final.trace.txt"
+```
+
+# Functions (Process Raw Data)
+
+```{r}
+# Create a function to parse the data
+processLine = function(x){
+  # Split up the line on ';', '=' and ','
+  tokens = strsplit(x, "[;=,]")[[1]]
+  
+  # The hand held device (the one for which we need to determine the position)
+  # infromation is contained in the 1st 10 tokens (refer to book page 9)
+  # If no scanned signal values, return NULL
+  if (length(tokens) == 10) {
+    return(NULL)
+  }
+  
+  # The tokens after the 10th one representthe signal strength at the access points (book page 9). 
+  # Split up the tokens into individual measurements (each measurement contains 4 data points)
+  # 4 points are: MAC address, Signal, Channel and Device Type
+  # Device Type 3 is what is important (book page 6)
+  tmp = matrix(data = tokens[ - (1:10) ], ncol = 4, byrow = TRUE)
+  
+  # Combine signal measurement with the h
+  cbind(matrix(tokens[c(2, 4, 6:8, 10)], nrow(tmp), 6, byrow = TRUE), tmp)
+}
+```
+
+```{r}
+#' @description Function to read the data, clean it and process it into an appropriate format
+#' @param file Filename to be read in
+#' @param keepMacs a list of MAC addresses to keep
+#' @returns A dataframe 
+readData = function(file, keepMacs=NULL){
+  # Read in the raw "offline" text file
+  txt = readLines(file)
+  
+  ##############################
+  #### Process the raw data ####
+  ##############################
+  
+  # Parse the data
+  lines = txt[substr(txt, 1, 1) != "#" ]
+  tmp = lapply(lines, processLine)
+  
+  # Convert the data to a data frame
+  data = as.data.frame(do.call("rbind", tmp), stringsAsFactors = FALSE)
+
+  ######################################################################
+  #### Cleaning the Data and Building a Representation for Analysis ####
+  ######################################################################
+  
+  # Assign column names to the offline data frame
+  names(data) = c(
+    "time", "scanMac", "posX", "posY", "posZ",
+    "orientation", "mac", "signal",
+    "channel", "type"
+  )
+  
+  numVars = c("time", "posX", "posY", "posZ", "orientation", "signal")
+  data[numVars] = lapply(data[numVars], as.numeric)
+  
+  # Keep only required device types (remove adhoc)
+  data = data[data$type != 1, ]
+
+  # Keep only required MAC Addresses
+  data = data[data$mac %in% keepMacs, ]
+  
+  # # From book page 13
+  # data$rawTime = data$time
+  # data$time = data$time/1000
+  # class(data$time) = c("POSIXt", "POSIXct")
+  
+  # Discard unwanted columns that dont add any additional information
+  data = data[ , !(names(data) %in% c("scanMac", "posZ"))]
+
+  # Cleanup Orientation
+  data$angle = roundOrientation(data$orientation)
+  
+  # Add position identifier 
+  data$posXY = paste(data$posX, data$posY, sep = "-")
+
+  return(data)
+}
+```
+
+# Offline data
+
+```{r}
+numMacs = length(keepMacs)
+numMacs
+```
+
+```{r}
+roundOrientation = function(angles) {
+  refs = seq(0, by = 45, length = 9)
+  q = sapply(angles, function(o) which.min(abs(o - refs)))
+    c(refs[1:8], 0)[q]
+  }
+```
+
+```{r}
+offline = readData(file = offline_file, keepMacs = keepMacs)
+dim(offline)
+length(unique(offline$posXY))
+```
+
+# Online Data
+```{r}
+online = readData(file = online_file, keepMacs = keepMacs)
+dim(online)
+length(unique(online$posXY))
+```
+
+# Function (Reshape)
+```{r}
+# This is equivalent to the tall2wide function 
+reshapeSS = function(data, varSignal = "signal", keepVars = c("posXY", "posX", "posY"), sampleAngle = FALSE) {
+  refs = seq(0, by = 45, length = 8)
+  byLocation =
+  with(
+    data,
+    by(
+      data,
+      list(posXY),
+      function(x) {
+        if (sampleAngle) x = x[x$angle == sample(refs, size = 1), ]
+        ans = x[1, keepVars]
+        avgSS = tapply(x[ , varSignal ], x$mac, mean)
+        y = matrix(avgSS, nrow = 1, ncol = numMacs,
+        dimnames = list(ans$posXY, names(avgSS)))
+        cbind(ans, y)
+      }
+    )
+  )
+  newDataSS = do.call("rbind", byLocation)
+  return(newDataSS)
+}
+
+```
+
+# Reshape Test Data
+```{r}
+keepVars = c("posXY", "posX","posY", "orientation", "angle")
+onlineSummary = reshapeSS(data = online, varSignal = "signal", keepVars = keepVars)
+onlineSummary
+```
+
+
+# Function (Select Train Data)
+
+```{r}
+#' @description Selectes the appropriate observations (based on test data orientation) from the original tall data
+#' and reformats it such that it can be used for training the KNN algorithm
+#' @param angleNewObs Angle (Orientation) of the test observation
+#' @param train_data Original tall-skinny data
+#' @param m Keep the 'm' closest orientations to angleNewObs 
+#' @returns A dataframe suitable for training
+selectTrain = function(angleNewObs, train_data, m){
+  
+  # Find the angles to keep
+  
+  nearestAngle = roundOrientation(angles = angleNewObs)
+  
+  if (m %% 2 == 1) {
+    angles = seq(-45 * (m - 1) /2, 45 * (m - 1) /2, length = m)
+  } else {
+    m = m + 1
+    angles = seq(-45 * (m - 1) /2, 45 * (m - 1) /2, length = m)
+    if (sign(angleNewObs - nearestAngle) > -1)
+      angles = angles[ -1 ]
+    else
+      angles = angles[ -m ]
+  }
+  
+  angles = angles + nearestAngle
+  angles[angles < 0] = angles[ angles < 0 ] + 360
+  angles[angles > 360] = angles[ angles > 360 ] - 360
+  
+  # Subset only those angles from original data (tall-skinny)
+  train_data_subset = train_data[train_data$angle %in% angles, ]
+  
+  # Convert to Wide and average the data for the same positions 
+  train_data_subset = reshapeSS(data = train_data_subset, varSignal = "signal")
+  
+  return(train_data_subset)
+}
+```
+
+# Nearest Neighbors
+
+## Common Functions
+
+```{r}
+#' @description Computes the distance of the new signal (single observation) to each observation in the training dataset
+#' @param newSignals The Signal Values for the validation data for each observation
+#' @param trainSubset The training data to be used
+#' @param weighted Whether the mean value should be weighted based on distancde or not.
+#' @return A dataframe containing same number of rows as that in the training data.
+#'         The observations are ordered by the distance to the new signal. Each row contains 5 columns. 
+#'         1st column is the XY location of the training observation (string)
+#'         2nd column is the X location of the training observation (float)
+#'         3rd column is the Y location of the training observation (float)
+#'         4th column is the distance to the point under consideration to the training observation (float)
+#'         5th column is the inverse distance or weight (float). Weight is hard coded to 1 for all observations if weighted = FALSE
+findNN = function(newSignal, trainSubset, weighted=FALSE, method = DIST_METHOD) {
+  diffs = apply(trainSubset[ , 4:(4+numMacs-1)], 1, function(x) x - newSignal)
+  if(method=='Euclidean')  dists = apply(diffs, 2, function(x) sqrt(sum(x^2)) ) #RSE
+  if(method=='Manhattan')  dists = apply(diffs, 2, function(x) sum(abs(x)) ) #AE
+  closest = order(dists)
+  
+  ordered_dist = dists[closest]
+  if(weighted == TRUE){
+    weight = weightFormula(ordered_dist)
+  }
+  if(weighted == FALSE){
+    weight = rep(1, length(dists))
+  }
+  return(cbind(trainSubset[closest, 1:3], ordered_dist, weight))
+}
+```
+
+```{r}
+#' @description XY Prediction for a single value of k (num neighbors)
+#' @param newSignals The Signal Values for the validation data for each observation
+#' @param newAngles The Orientation of the validation data for each observation
+#' @param trainData The training data to be used
+#' @param numAngles Number of closest reference angles to include in the data
+#' @param k Perform the predicton for num neighbors = k
+#' @param weighted Whether the mean value should be weighted based on distancde or not.
+#' @return A dataframe with num rows = number of (validation) observations and num columns = 2
+#'         Each row indicates the prediction of the mean X and Y values for that observation
+predXY = function(newSignals, newAngles, trainData, numAngles = 1, k = 3, weighted=FALSE){
+  closeXY = list(length = nrow(newSignals))
+  for (i in 1:nrow(newSignals)) {
+    trainSS = selectTrain(newAngles[i], trainData, m = numAngles)
+    closeXY[[i]] = findNN(
+      newSignal = as.numeric(newSignals[i, ]),
+      trainSubset = trainSS,
+      weighted = weighted
+    )
+  }
+  
+  #' @description Returns the (un)weighted mean X and Y locations for a single observation and single value of neighbors
+  #' @param x Dataframe containing 5 columns 
+  #' 1st column is the XY location (string)
+  #' 2nd column is the X location (float)
+  #' 3rd column is the Y location (float)
+  #' 4th column is the distance to the point under consideration (float)
+  #' 5th column is the inverse distance or weight (float)
+  #' @param k Number of nearest neighbors to use
+  #' @return A pair of XY mean values for k number of neighbors
+  k_means_single_obs = function(x, k){
+    weights = x[1:k, 5]
+    weighted_x = sum(x[1:k, 2] * weights) / sum(weights)
+    weighted_y = sum(x[1:k, 3] * weights) / sum(weights)
+    return(c(weighted_x, weighted_y))
+  }
+  
+  # estXY = lapply(closeXY, function(x) sapply(x[ , 2:3], function(x) mean(x[1:k])))
+  estXY = lapply(closeXY, k_means_single_obs, k)
+  estXY = do.call("rbind", estXY)
+  return(estXY)
+}
+```
+
+```{r}
+calcError = function(estXY, actualXY, method = DIST_METHOD){
+  if('numeric' %in% class(estXY)) rows = 1 else rows = nrow(estXY)
+  if(method == 'Euclidean')  er = sqrt(sum(rowSums((estXY - actualXY)^2)))/rows
+  if(method == 'Manhattan')  er = sum(rowSums(abs(estXY - actualXY)))/rows
+  return(er)
+}
+```
+
+
+
+
+# K-Fold 
+
+## Setup
+
+```{r}
+set.seed(42)
+K = 20
+v = 11
+```
+
+```{r}
+allNeighbors = c(1:K)
+allNeighbors
+
+allAngles = c(1:8)
+allAngles
+```
+
+```{r}
+permuteLocs = sample(unique(offline$posXY))
+permuteLocs = matrix(permuteLocs, ncol = v, nrow = floor(length(permuteLocs)/v))
+permuteLocs
+```
+
+```{r}
+onlineFold = subset(offline, posXY %in% permuteLocs[ , 1])
+head(onlineFold)
+```
+
+```{r}
+# For reference
+head(onlineSummary)
+```
+
+```{r}
+keepVars = c("posXY", "posX","posY", "orientation", "angle")
+onlineCVSummary = reshapeSS(offline, keepVars = keepVars, sampleAngle = TRUE)
+onlineCVSummary
+```
+
+```{r}
+# First Fold (validation)
+onlineFold = subset(onlineCVSummary, posXY %in% permuteLocs[ , 1])
+head(onlineFold)
+```
+
+```{r}
+# First Fold (Train)
+offlineFold = subset(offline, posXY %in% permuteLocs[ , -1])
+head(offlineFold)
+```
+
+```{r}
+estFold = predXY(
+  newSignals = onlineFold[ , 6:(6+numMacs-1)],
+  newAngles = onlineFold[ , 4],
+  offlineFold,
+  numAngles = 3,
+  k = 3
+)
+```
+
+```{r}
+actualFold = onlineFold[ , c("posX", "posY")]
+calcError(estFold, actualFold)
+```
+
+## Faster Cross Validation
+
+### Common Functions
+
+```{r}
+#' @description Modified XY Prediction to help with faster CV for all K values at once (from 1 to K)
+#' @param newSignals The Signal Values for the validation data for each observation
+#' @param newAngles The Orientation of the validation data for each observation
+#' @param trainData The training data to be used
+#' @param numAngles Number of closest reference angles to include in the data
+#' @param K Perform the prediction for num neighbors from 1 to K
+#' @param weighted Whether the mean value should be weighted based on distancde or not.
+#' @return A nested dataframe with num rows = number of (validation) observations and num columns = number of folds
+#'         Each entry in this dataframe is a vector of 2 values
+#'         indicating the prediction of the mean X and Y values for that obs and num neighbors
+predXYallK = function(newSignals, newAngles, trainData, numAngles = 1, K = 10, weighted=FALSE){
+  closeXY = list(length = nrow(newSignals))
+  for (i in 1:nrow(newSignals)) {
+    trainSS = selectTrain(newAngles[i], trainData, m = numAngles)
+    closeXY[[i]] = findNN(
+      newSignal = as.numeric(newSignals[i, ]),
+      trainSubset = trainSS,
+      weighted = weighted
+    )
+  }
+  
+  #' @description Returns the (un)weighted mean X and Y locations for a single observation and multiple neighor values
+  #' @param x Dataframe containing 5 columns 
+  #' 1st column is the XY location (string)
+  #' 2nd column is the X location (float)
+  #' 3rd column is the Y location (float)
+  #' 4th column is the distance to the point under consideration (float)
+  #' 5th column is the inverse distance or weight (float)
+  #' @param K Number of nearest neighbors to use
+  #' @return A list of K pairs (each pair is a XY mean value for a single k)
+  all_K_means_single_obs = function(x, K){
+    # Row will contain the K mean values for k = 1 to K
+    rows = list()
+    for(k in seq(1, K)){
+      rows[[k]] = k_means_single_obs(x, k)
+    }
+    return(rows)
+  }
+  
+  #' @description Returns the (un)weighted mean X and Y locations for a single observation and single value of neighbors
+  #' @param x Dataframe containing 5 columns 
+  #' 1st column is the XY location (string)
+  #' 2nd column is the X location (float)
+  #' 3rd column is the Y location (float)
+  #' 4th column is the distance to the point under consideration (float)
+  #' 5th column is the inverse distance or weight (float)
+  #' @param k Number of nearest neighbors to use
+  #' @return A pair of XY mean values for k number of neighbors
+  k_means_single_obs = function(x, k){
+    weights = x[1:k, 5]
+    weighted_x = sum(x[1:k, 2] * weights) / sum(weights)
+    weighted_y = sum(x[1:k, 3] * weights) / sum(weights)
+    return(c(weighted_x, weighted_y))
+  }
+  
+  # estXY = lapply(closeXY, function(x) sapply(x[ , 2:3], function(x) mean(x[1:k])))
+  estXY = lapply(closeXY, all_K_means_single_obs, K)
+  estXY = do.call("rbind", estXY)
+  return(estXY)
+}
+```
+
+
+```{r}
+#' @description Returns the (un)weighted mean X and Y locations for a single observation and multiple neighor values
+#' @param K Number of nearest neighbors to use (Will run Grid Search over all values from k = 1 to K)
+#' @param v Number of folds to use
+#' @param offline Use "as is" from script for now
+#' @param onlineCVSummary Use "as is" from script for now
+#' @param folds A matrix with rows = number of observations in each fold and columns = number of folds.
+#'              The values are the XY IDs to be included in that fold
+#' @param numAngles Number of closest reference angles to include in the data
+#' @param weighted Whether the mean value should be weighted based on distancde or not.
+#' @return A vector of K values indicating the Error for each value of k from 1 to K
+run_kfold = function(K, v, offline, onlineCVSummary, folds, numAngles, weighted=FALSE){
+  err= rep(0, K)
+  errCV = rep(0, K)
+  allErr = data.frame()
+  for (j in 1:v) {
+    print(paste("Running Fold: ", j))
+    onlineFold = subset(onlineCVSummary, posXY %in% folds[ , j])
+    offlineFold = subset(offline, posXY %in% folds[ , -j])
+    actualFold = onlineFold[ , c("posX", "posY")]
+    
+    estFold = predXYallK(
+        newSignals = onlineFold[ , 6:(6+numMacs-1)],
+        newAngles = onlineFold[ , 4],
+        trainData = offlineFold,
+        numAngles = numAngles,
+        K = K,
+        weighted=weighted
+      )
+    # Reformat into correct format for each 'k' value
+    for(k in 1:K){ 
+      estSingleK = data.frame()
+      for(i in seq(1, length(estFold)/K)){  # i = NUmber of the observtion
+        estSingleK = rbind(estSingleK, t(as.data.frame(estFold[i,k])))
+      }
+      err[k] = err[k] + calcError(estSingleK, actualFold)
+      errCV[k] =  calcError(estSingleK, actualFold) #returning all folds
+    }
+    allErr=rbind(allErr,data.frame('fold'=j, 'numNeighbors' = 1:K,'errValue' = errCV))
+  } 
+  
+  return(list(err=err,allErr=allErr))
+}
+```
+
+### Parallel CV and Plot
+
+```{r}
+get_CV = function(K,v,offline,onlineCVSummary,permuteLocs,numAngles,weighted = TRUE){
+  library(foreach)
+  library(progress)
+  library(doParallel)
+  library(doSNOW)
+  cl <- makeCluster(detectCores())
+  doSNOW::registerDoSNOW(cl)
+  
+  allErrors = data.frame()
+  
+  start = proc.time()
+  
+  pb <- progress::progress_bar$new(total = length(allAngles),format='[:bar] :percent :eta')
+  progress <- function(n) pb$tick()
+  allErrorsCV = foreach(numAngles = allAngles
+                        ,.combine = rbind
+                        ,.options.snow = list(progress=progress)
+                        ,.export = c('run_kfold','predXYallK','reshapeSS','findNN','calcError'
+                                     ,'numMacs','selectTrain','roundOrientation','DIST_METHOD'
+                                     ,'weightFormula')
+  ) %dopar% {
+    print(paste("Running ", v, "-fold cross validation with 1 to ", K, " neighbors, for number of Angles = ", numAngles))
+    err = run_kfold(
+      K = K,
+      v = v,
+      offline = offline,
+      onlineCVSummary = onlineCVSummary,
+      folds = permuteLocs,
+      numAngles = numAngles,
+      weighted = weighted
+    )
+    err$allErr$numAngles = numAngles
+    
+    return(err$allErr)
+    #return(data.frame(t(err)))
+  }
+  stopCluster(cl)
+  stop = proc.time()
+  diff = stop-start
+  print(diff)
+  
+  return(allErrorsCV)
+}
+
+find_best = function(allErrorsCV){
+  library('caret')
+  library(tidyverse)
+  allErrors = allErrorsCV %>%
+    group_by(numAngles,numNeighbors) %>%
+    dplyr::summarise(errValue = mean(errValue)) %>%
+    ungroup() %>%
+    mutate(errValueSD=sd(errValue)
+           ,best=FALSE
+           ,oneSE=FALSE)
+  allErrors[best(as.data.frame(allErrors),"errValue",maximize=FALSE),]$best=TRUE
+  allErrors[oneSE(as.data.frame(allErrors),"errValue",maximize=FALSE,num=30),]$oneSE=TRUE
+  return(allErrors)
+}
+
+plot_best = function(allErrors) {
+  p = ggplot(allErrors, aes(x=numNeighbors, y=numAngles, fill= errValue
+                         , text=paste0("A:",numAngles," N:",numNeighbors,' ' ,errMethod," :", round(errValue,3)))) + 
+    geom_tile() +
+    scale_y_continuous(breaks=allAngles) +
+    #scale_fill_distiller(palette = "RdYlBu") +
+    scale_fill_gradient2(low = "green",mid='darkorange', high = "darkred", na.value = NA
+                         ,midpoint=mean(c(max(allErrors$errValue),min(allErrors$errValue)))
+                         #,midpoint=median(Errors$errValue)
+    )+
+    #scale_fill_distiller(palette = "Blues",direction=0) +
+    labs(fill = errMethod) +
+    geom_text(data=allErrors[allErrors$best,],label='Best',size=3,nudge_y=.27) +
+    geom_text(data=allErrors[allErrors$oneSE,],label='1SE',size=3) 
+  #p
+  ggplotly(p, tooltip="text")
+}
+```
+
+
+# Unweighted
+```{r}
+allErrorsCV = get_CV(K=K,v=v
+                     ,offline=offline,onlineCVSummary=onlineCVSummary
+                     ,permuteLocs=permuteLocs,numAngles=numAngles
+                     ,weighted = FALSE)
+allErrors = find_best(allErrorsCV)
+allErrors
+```
+
+```{r}
+print(filter(allErrors,best | oneSE))
+```
+
+
+
+```{r}
+plot_best(allErrors)
+```
+
+```{r}
+
+```
+
+
+## Final Model
+
+```{r}
+final = filter(allErrors,oneSE)
+
+finalAngle = final$numAngles
+finalK = final$numNeighbors
+finalAngle
+finalK
+#
+```
+
+```{r}
+actualXY = onlineSummary %>%  dplyr::select(posX, posY)
+
+estXYfinalK = predXY(
+  newSignals = onlineSummary[ , 6:(6+numMacs-1)],
+  newAngles = onlineSummary[ , 4],
+  trainData = offline,
+  numAngles = finalAngle,
+  k = finalK,
+  weighted = FALSE
+)
+calcError(estXYfinalK, actualXY)
+```
+
+# Weighted
+```{r}
+allErrorsCVW = get_CV(K=K,v=v
+                     ,offline=offline,onlineCVSummary=onlineCVSummary
+                     ,permuteLocs=permuteLocs,numAngles=numAngles
+                     ,weighted = TRUE)
+allErrorsW = find_best(allErrorsCVW)
+allErrorsW
+```
+```{r}
+print(filter(allErrorsW,best | oneSE))
+```
+
+
+```{r}
+plot_best(allErrorsW)
+```
+
+
+
+## Final Model
+
+```{r}
+
+finalW = filter(allErrorsW,oneSE)
+
+finalAngleW = final$numAngles
+finalKW = final$numNeighbors
+finalAngleW
+finalKW
+```
+
+
+```{r}
+actualXY = onlineSummary %>%  dplyr::select(posX, posY)
+
+
+estXYfinalKW = predXY(
+  newSignals = onlineSummary[ , 6:(6+numMacs-1)],
+  newAngles = onlineSummary[ , 4],
+  trainData = offline,
+  numAngles = finalAngleW,
+  k = finalKW,
+  weighted = TRUE
+)
+calcError(estXYfinalKW, actualXY)
+```

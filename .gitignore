@@ -1,0 +1,13 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+desktop.ini
+.ipynb_checkpoints
+.DS_Store
+__pycache__
+.spyproject
+.pylint*
+.mypy_cache
+.Rproj
+
