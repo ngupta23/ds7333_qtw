@@ -1,0 +1,399 @@
+---
+title: "Case Study 2 - EDA"
+author: "Nikhil Gupta"
+date: "`r Sys.time()`"
+always_allow_html: yes
+output:
+  github_document:
+    toc: true
+    toc_depth: 6
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+version
+```
+
+** From text (Chapter 2)**
+
+# Section 2.2
+
+```{r}
+menTables = readRDS("../../data/CBMenTextTables.rds")
+menTables[['2012']][1:10]
+```
+
+
+
+```{r}
+els = menTables[['2012']]
+```
+
+
+```{r}
+eqIndex = grep("^===", els)
+eqIndex
+```
+
+```{r}
+spacerRow = els[eqIndex]
+headerRow = els[eqIndex - 1] %>% tolower()
+body = els[ -(1:eqIndex) ]
+```
+
+
+```{r}
+ageStart = regexpr("ag", headerRow)
+```
+
+```{r}
+age = substr(body, start = ageStart, stop = ageStart + 1)
+head(age)
+```
+
+```{r}
+summary(as.numeric(age))
+```
+
+```{r}
+# Here the g in gregexpr() stands for “global,” which means that the function searches for
+```
+
+
+```{r}
+# multiple matches in the string, not just the first match.
+blankLocs = gregexpr(" ", spacerRow)
+blankLocs
+```
+
+
+```{r}
+searchLocs = c(0, blankLocs[[1]])
+searchLocs
+```
+
+
+```{r}
+Values = mapply(
+  substr,
+  list(body),
+  start = searchLocs[-length(searchLocs)] + 1,
+  stop = searchLocs[-1] - 1
+  )
+Values[1:10,]
+```
+
+
+```{r}
+findColLocs = function(spacerRow){
+  # In the function, we safeguard against the last character in the row of '=' characters not being a blank, we add
+  # an additional element to the end of the vector of locations that is one character more than the length of the string.
+  spaceLocs = gregexpr(" ", spacerRow)[[1]]
+  rowLength = nchar(spacerRow)
+  if(substring(spacerRow, rowLength, rowLength) != " "){
+    return(c(0, spaceLocs, rowLength + 1))
+  }
+  else{
+    return(c(0, spaceLocs))
+  }
+}
+```
+
+```{r}
+#' @description Function to determine the start and end location of a Column
+#' @returns The Start and End Position of the Column
+selectCols = function(colNames, headerRow, searchLocs){
+  sapply(
+    colNames,
+    function(name, headerRow, searchLocs){
+      startPos = regexpr(name, headerRow)[[1]]
+      if (startPos == -1){
+        return(c(NA, NA))
+      }
+      index = sum(startPos >= searchLocs)
+      
+      # We can easily solve both of these problems by including the value in the “blank” space between columns (see text book).
+      # return(c(searchLocs[index] + 1, searchLocs[index + 1] - 1))
+      return(c(searchLocs[index] + 1, searchLocs[index + 1]))
+    },
+    headerRow = headerRow, searchLocs = searchLocs
+  )
+}
+```
+
+```{r}
+searchLocs = findColLocs(spacerRow)
+ageLoc = selectCols("ag", headerRow, searchLocs)
+ages = mapply(
+  substr,
+  list(body),
+  start = ageLoc[1,], stop = ageLoc[2,]
+)
+summary(as.numeric(ages))
+```
+
+
+```{r}
+# Since the column names vary somewhat from year to year, we use only the first few
+# characters that uniquely identify the desired columns, e.g.,
+shortColNames = c("name", "home", "ag", "gun", "net", "time")
+```
+
+
+```{r}
+# Also, if a file does not have one of the desired variables, then we want the values for that variable to be NA.
+locCols = selectCols(shortColNames, headerRow, searchLocs)
+Values = mapply(
+  substr,
+  list(body),
+  start = locCols[1, ],
+  stop = locCols[2, ]
+)
+colnames(Values) = shortColNames
+head(Values)
+```
+
+```{r}
+tail(Values)
+```
+
+```{r}
+extractVariables = function(file, varNames =c("name", "home", "ag", "gun", "net", "time")){
+  # Find the index of the row with =s
+  eqIndex = grep("^===", file)
+  
+  # Extract the two key rows and the data
+  spacerRow = file[eqIndex]
+  headerRow = tolower(file[ eqIndex - 1 ])
+  body = file[ -(1 : eqIndex) ]
+  
+  # Remove Comments (Starting with optional space and #)
+  comments = grep("^[[:space:]]*#", body)
+  if(length(comments) > 0){
+    body = body[-comments]
+  }
+  
+  # Obtain the starting and ending positions of variables
+  searchLocs = findColLocs(spacerRow)
+  locCols = selectCols(varNames, headerRow, searchLocs)
+  
+  # Extract the values of these variables
+  Values = mapply(
+    substr, list(body),
+    start = locCols[1, ],
+    stop = locCols[2, ]
+  )
+  colnames(Values) = varNames
+  
+  # Remove empty rows
+  blanks = grep("^[[:blank:]]*$", Values)
+  if(length(blanks) > 0){
+    Values = Values[-blanks, ]
+  }
+  
+  return(invisible(Values))
+}
+```
+
+
+```{r}
+menResMat = lapply(menTables, extractVariables)
+length(menResMat)
+```
+
+```{r}
+sapply(menResMat, nrow)
+```
+
+# Section 2.3
+
+## Cleaning Age
+
+```{r}
+age = as.numeric(menResMat[['2012']][ , 'ag'])
+tail(age)
+```
+
+```{r}
+age = sapply(
+  menResMat,
+  function(x) as.numeric(x[ , 'ag'])
+)
+```
+
+```{r}
+boxplot(age, ylab = "Age", xlab = "Year")
+```
+
+We see that in 2003, the age values are shifted to the right one space in comparison to the
+location of the '=' characters. This means that we are picking up only the digit in the tens
+place. In 2006, some but not all of the rows have values that are off by one character.
+
+```{r}
+head(menTables[['2003']])
+```
+
+```{r}
+menTables[['2006']][2200:2205]
+```
+
+```{r}
+head(menTables[['2009']],10)
+```
+
+```{r}
+sapply(age, function(x) sum(is.na(x)))
+```
+
+
+```{r}
+age2001 = age[["2001"]]
+```
+
+
+```{r}
+# grep("^===", menTables[['2001']])
+```
+
+
+```{r}
+# badAgeIndex = which(is.na(age2001)) + 5
+# badAgeIndex
+# menTables[['2001']][badAgeIndex]
+```
+
+
+```{r}
+# blanks = grep("^[[:blank:]]*$", menTables[['2001']])
+# blanks
+```
+
+
+```{r}
+menResMat[['2001']][age2001 < 5,]
+```
+
+## Cleaning Time
+
+```{r}
+charTime = menResMat[['2012']][, 'time']
+head(charTime, 5)
+tail(charTime, 5)
+```
+
+```{r}
+timePieces = strsplit(charTime, ":")
+timePieces[[1]]
+tail(timePieces, 1)
+```
+
+```{r}
+timePieces = sapply(timePieces, as.numeric)
+runTime = sapply(
+  timePieces,
+  function(x) {
+    if (length(x) == 2) x[1] + x[2]/60
+    else 60*x[1] + x[2] + x[3]/60
+  }
+)
+summary(runTime)
+```
+
+
+```{r}
+#' @description Converts character time columns to calculated numeric values
+convertTime = function(charTimeValues){
+  
+  timePieces = charTimeValues %>% 
+    strsplit(":") %>%
+    sapply(as.numeric)
+  
+  runTime = sapply(
+    timePieces,
+    function(x) {
+      if (length(x) == 2) x[1] + x[2]/60
+      else 60*x[1] + x[2] + x[3]/60
+    }
+  )
+  return(runTime)
+}
+```
+
+
+```{r}
+summary(convertTime(charTime))
+```
+
+## DataFrame
+
+```{r}
+createDF = function(Res, year, sex){
+  # Determine which time to use
+  if(!is.na(Res[1, 'net'])){
+    useTime = Res[ , 'net']
+  }
+  else if(!is.na(Res[1, 'gun'])){
+    useTime = Res[ , 'gun']
+  }
+  else{
+    useTime = Res[ , 'time']
+  }
+  
+  # Remove # and * and blanks from time
+  useTime = gsub("[#\\*[:blank:]]", "", useTime)
+  # Drop rows with no time
+  Res = Res[ useTime != "", ]
+  
+  # Convert from hh:mm:ss to single numeric value
+  runTime = convertTime(useTime[useTime != ""])
+  
+  Results = data.frame(
+    year = rep(year, nrow(Res)),
+    sex = rep(sex, nrow(Res)),
+    name = Res[ , 'name'],
+    home = Res[ , 'home'],
+    age = as.numeric(Res[, 'ag']),
+    runTime = runTime,
+    stringsAsFactors = FALSE
+  )
+  return(invisible(Results))
+}
+```
+
+```{r}
+menDF = mapply(
+  createDF,
+  menResMat,
+  year = 1999:2012,
+  sex = rep("M", length(1999:2012)),
+  SIMPLIFY = FALSE
+)
+```
+
+```{r}
+# It is likely that the conversion problems are coming from the conversion of time from a
+# character string into minutes because we have already handled the conversion of age.
+sapply(menDF, function(x) sum(is.na(x$runTime)))
+```
+
+We find that these are caused by runners who completed half the race but have no final times and by runners who have a footnote after their time,
+
+```{r}
+menDF[['2001']][is.na(menDF[['2001']]$runTime), ]
+menDF[['2002']][is.na(menDF[['2002']]$runTime), ]
+```
+
+
+
+
