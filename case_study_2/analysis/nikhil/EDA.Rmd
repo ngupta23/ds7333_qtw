@@ -34,7 +34,9 @@ menTables = readRDS("../../data/CBMenTextTables.rds")
 menTables[['2012']][1:10]
 ```
 
-
+```{r}
+menTables[['2006']][1:10]
+```
 
 ```{r}
 els = menTables[['2012']]
@@ -394,6 +396,271 @@ menDF[['2001']][is.na(menDF[['2001']]$runTime), ]
 menDF[['2002']][is.na(menDF[['2002']]$runTime), ]
 ```
 
+```{r}
+head(menDF[['2006']])
+```
+
+```{r}
+# Hometown and Net Time are Combined
+menTables[['2006']][1:20]
+```
+
+# TODO: Fix 2006 Results (Header)
+
+```{r}
+cbMen = do.call(rbind, menDF)
+```
+
+```{r}
+dim(cbMen)
+```
+
+```{r}
+saveRDS(cbMen, file = "../../data/cbMen.rds")
+```
+
+# Section 2.4: Exploring Run Times (Male Runners)
+
+```{r}
+plot(
+  runTime ~ age, data = cbMen, ylim = c(40, 180),
+  xlab = "Age (years)", ylab = "Run Time (minutes)"
+)
+```
+
+**TODO**: Convert to GGPLOT with faceting or color coding by year
+
+## 2.4.1 Making Plots with Many Observations
+
+```{r}
+library(RColorBrewer)
+ls("package:RColorBrewer")
+```
+
+```{r fig.width=8, fig.height=8}
+display.brewer.all()
+```
 
 
+```{r}
+Purples8 = brewer.pal(9, "Purples")[8]
+Purples8
+```
+
+```{r}
+# Adding Transparency
+Purples8A = paste(Purples8, "14", sep = "")
+```
+
+
+**TODO**: Plot with Color (left as exercise to user)
+
+```{r}
+# Better Alternate
+smoothScatter(
+  y = cbMen$runTime, x = cbMen$age,
+  ylim = c(40, 165), xlim = c(15, 85),
+  xlab = "Age (years)", ylab = "Run Time (minutes)"
+)
+```
+
+
+```{r}
+# Graphing Sumary Statistics
+cbMenSub = cbMen[cbMen$runTime > 30 & !is.na(cbMen$age) & cbMen$age > 15, ]
+ageCat = cut(cbMenSub$age, breaks = c(seq(15, 75, 10), 90))
+table(ageCat)
+```
+
+```{r}
+plot(
+  cbMenSub$runTime ~ ageCat,
+  xlab = "Age (years)", ylab = "Run Time (minutes)"
+)
+```
+
+## 2.4.2: Fitting Models to Average Performance
+
+```{r}
+# TODO: When 2006 is fixed, this should include all the data.
+# Right now, it excludes 2006 data
+dim(cbMenSub)
+cbMenSub = cbMenSub[which(!is.na(cbMenSub$runTime)),]
+dim(cbMenSub)
+```
+
+```{r}
+lmAge = lm(runTime ~ age, data = cbMenSub)
+summary(lmAge)
+```
+
+```{r}
+# TODO: Fails since there are NA Values
+smoothScatter(
+  x = cbMenSub$age, y = lmAge$residuals,
+  xlab = "Age (years)", ylab = "Residuals"
+)
+abline(h = 0, col = "purple", lwd = 3)
+```
+
+
+```{r}
+resid.lo = loess(
+  resids ~ age,
+  data = data.frame(
+    resids = residuals(lmAge),
+    age = cbMenSub$age
+  )
+)
+```
+
+```{r}
+age20to80 = 20:80
+resid.lo.pr = predict(resid.lo, newdata = data.frame(age = age20to80))
+```
+
+```{r}
+smoothScatter(
+  x = cbMenSub$age, y = lmAge$residuals,
+  xlab = "Age (years)", ylab = "Residuals"
+)
+abline(h = 0, col = "purple", lwd = 3)
+lines(x = age20to80, y = resid.lo.pr, col = "green", lwd = 3, lty = 2)
+```
+
+### LOESS Model
+```{r}
+menRes.lo = loess(runTime ~ age, cbMenSub)
+menRes.lo.pr = predict(menRes.lo, data.frame(age = age20to80))
+```
+
+```{r}
+plot(x = age20to80, y = menRes.lo.pr, col = "green", lwd = 3, lty = 2)
+```
+
+### Piecewise Linear Model
+
+```{r}
+over50 = pmax(0, cbMenSub$age - 50)
+lmOver50 = lm(runTime ~ age + over50, data = cbMenSub)
+summary(lmOver50)
+```
+
+
+```{r}
+decades = seq(30, 60, by = 10)
+overAge = lapply(decades,
+function(x) pmax(0, (cbMenSub$age - x)))
+names(overAge) = paste("over", decades, sep = "")
+overAge = as.data.frame(overAge)
+tail(overAge)
+```
+
+
+```{r}
+lmPiecewise = lm(
+  runTime ~ . ,
+  data = cbind(cbMenSub[, c("runTime", "age")], overAge)
+)
+summary(lmPiecewise)
+```
+
+```{r}
+overAge20 = lapply(decades, function(x) pmax(0, (age20to80 - x)))
+names(overAge20) = paste("over", decades, sep = "")
+overAgeDF = cbind(age = data.frame(age = age20to80), overAge20)
+tail(overAgeDF)
+```
+
+
+```{r}
+predPiecewise = predict(lmPiecewise, overAgeDF)
+```
+
+
+```{r}
+plot(
+  predPiecewise ~ age20to80,
+  type = "l", col = "purple", lwd = 3,
+  xlab = "Age (years)", ylab = "Run Time Prediction"
+)
+lines(x = age20to80, y = menRes.lo.pr, col = "green", lty = 2, lwd = 3) # LOESS
+legend(
+  "topleft", col = c("purple", "green"),
+  lty = c(1, 2), lwd= 3,
+  legend = c("Piecewise Linear", "Loess Curve"),
+  bty = "n"
+)
+```
+
+## 2.4.3 Cross Sectional Data and Covariates
+
+* Issue 1: Comparison across ages: Younger might be professional runners, older mighy be amateurs
+* Issue 2: Composition of ages might have changed over the years
+
+```{r}
+summary(cbMenSub$runTime[cbMenSub$year == 1999])
+summary(cbMenSub$runTime[cbMenSub$year == 2012])
+```
+
+```{r}
+age1999 = cbMenSub[ cbMenSub$year == 1999, "age" ]
+age2012 = cbMenSub[ cbMenSub$year == 2012, "age" ]
+```
+
+```{r}
+plot(
+  density(age1999, na.rm = TRUE),
+  ylim = c(0, 0.05), col = "purple",
+  lwd = 3, xlab = "Age (years)", main = ""
+)
+lines(
+  density(age2012, na.rm = TRUE),
+  lwd = 3, lty = 2, col="green"
+)
+legend("topleft", col = c("purple", "green"), lty= 1:2, lwd = 3,
+legend = c("1999", "2012"), bty = "n")
+```
+
+
+```{r}
+mR.lo99 = loess(runTime ~ age, cbMenSub[ cbMenSub$year == 1999,])
+mR.lo.pr99 = predict(mR.lo99, data.frame(age = age20to80))
+mR.lo12 = loess(runTime ~ age, cbMenSub[ cbMenSub$year == 2012,])
+mR.lo.pr12 = predict(mR.lo12, data.frame(age = age20to80))
+plot(
+  mR.lo.pr99 ~ age20to80,
+  type = "l", col = "purple", lwd = 3,
+  xlab = "Age (years)", ylab = "Fitted Run Time (minutes)"
+)
+lines(
+  x = age20to80, y = mR.lo.pr12,
+  col = "green", lty = 2, lwd = 3
+)
+legend("topleft", col = c("purple", "green"), lty = 1:2, lwd = 3,
+legend = c("1999", "2012"), bty = "n")
+```
+
+# Section 2.5
+
+##Constructing a Record for an Individual Runner across Years
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+# Section 2.6
+
+## Modeling the Change in Running for Individuals
+
+```{r}
+```
+
+
+```{r}
+```
 
