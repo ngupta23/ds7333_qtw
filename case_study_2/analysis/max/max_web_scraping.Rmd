@@ -37,7 +37,7 @@ getTable = function(year,division,section,page){
     mutate(year=year, divisionTitle=division, section=section, page=page, link=link)
 }
 
-getTables  = function(years,division,section){
+getTables  = function(years,division,section,useCachedWebData = FALSE){
   library(progress)
   library(doParallel)
   library(doSNOW)
@@ -47,29 +47,34 @@ getTables  = function(years,division,section){
   pb <- progress::progress_bar$new(total = length(years),format='[:bar] :percent :eta')
   progress <- function(n) pb$tick()
   
-  dataRaw=NULL
-  dataRaw = foreach(y=years
-                    ,.combine=rbind,.export=c('getTable','getLink')
-                    ,.options.snow = list(progress=progress)) %dopar%
-    {
-      library(foreach)
-      library(rvest)
-      library(dplyr)
-      isCompleted=FALSE
-      dataRaw=foreach(p=c(1:1000),.combine=rbind) %do%
-        if(!isCompleted) {
-          message('getting year:',y, ' page:',p,appendLF = F)
-          table = getTable(year=y
-                           ,division=division
-                           ,section=section
-                           ,page=p)
-          message(' rows:',nrow(table))
-          isCompleted = nrow(table)==0
-          return(table)
-        }
-      return(dataRaw)
-    }
-  stopCluster(cl)
+  if(useCachedWebData) {
+    dataRaw=NULL
+    dataRaw = foreach(y=years
+                      ,.combine=rbind,.export=c('getTable','getLink')
+                      ,.options.snow = list(progress=progress)) %dopar%
+      {
+        library(foreach)
+        library(rvest)
+        library(dplyr)
+        isCompleted=FALSE
+        dataRaw=foreach(p=c(1:1000),.combine=rbind) %do%
+          if(!isCompleted) {
+            message('getting year:',y, ' page:',p,appendLF = F)
+            table = getTable(year=y
+                             ,division=division
+                             ,section=section
+                             ,page=p)
+            message(' rows:',nrow(table))
+            isCompleted = nrow(table)==0
+            return(table)
+          }
+        return(dataRaw)
+      }
+    stopCluster(cl)
+    saveRDS(dataRaw,file='../../data/dataRaw.rds')
+  } else {
+    dataRaw= readRDS(file='../../data/dataRaw.rds')
+  }
   data = dataRaw %>%
     separate(col='Name',c('Name','Gender'),sep='[\\(\\)]',extra='drop',remove=TRUE) %>%
     separate(col='PiS/TiS',c('PiS','TiS'),sep='\\/',extra='drop',remove=TRUE) %>%
@@ -90,20 +95,14 @@ getTables  = function(years,division,section){
            ,PiD = as.numeric(PiD)
            ,TiD = as.numeric(TiD)
     )
-  return(list(data=data,dataRaw=dataRaw) )
+  return(data )
 }
 
 ```
 
 ```{r}
-if(F){
-  data=getTables(years=years,division = division,section=section)
-  saveRDS(data,file='../../data/data.rds')
-  saveRDS(dataRaw,file='../../data/dataRaw.rds')
-} else{
-  data=readRDS(file='../../data/data.rds')
-  dataRaw=readRDS(file='../../data/dataRaw.rds')
-}
+data=getTables(years=years,division = division,section=section,useCachedWebData = TRUE)
+saveRDS(data,file='../../data/data.rds')
 head(data)
 data %>%
   group_by(year) %>%
