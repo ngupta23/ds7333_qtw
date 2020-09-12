@@ -15,7 +15,7 @@ library(foreach)
 library(stringr)
 library(iterators)
 
-years = c(1992:2012)
+years = c(1999:2012)
 division = 'Overall+Women' #'Overall+Men"
 section = '10M' 
 ```
@@ -34,7 +34,7 @@ getTable = function(year,division,section,page){
     html_nodes("table")  %>% 
     html_table(fill=TRUE) 
   out = t[[1]] %>%
-    mutate(year=year, division=division, section=section, page=page, link=link)
+    mutate(year=year, divisionTitle=division, section=section, page=page, link=link)
 }
 
 getTables  = function(years,division,section){
@@ -78,9 +78,11 @@ getTables  = function(years,division,section){
     mutate(Race = trimws(substr(Race,5,100))
            ,DivisionCode =  trimws(substr(Division,1,1))
            ,DivisionNum =  trimws(substr(Division,3,100))
-           ,Time = lubridate::hms(Time)
+           #,Time = lubridate::hms(gsub('\\*\\*','',Time))
+           ,Time = lubridate::parse_date_time(gsub('\\*\\*','',Time), orders = c("HMS", "MS"))
            ,TimeMins = second(Time)/60 + minute(Time)  + hour(Time)*60
-           ,Pace = lubridate::ms(Pace)
+           #,Pace = lubridate::ms(Pace)
+           ,Pace = lubridate::parse_date_time(gsub('\\*\\*','',Pace), orders = c("HMS", "MS"))
            ,PaceMins = second(Pace)/60 + minute(Pace)  + hour(Pace)*60
            ,Age = as.numeric(Age)
            ,PiS = as.numeric(PiS)
@@ -88,7 +90,7 @@ getTables  = function(years,division,section){
            ,PiD = as.numeric(PiD)
            ,TiD = as.numeric(TiD)
     )
-  return(data) 
+  return(list(data=data,dataRaw=dataRaw) )
 }
 
 ```
@@ -97,8 +99,10 @@ getTables  = function(years,division,section){
 if(F){
   data=getTables(years=years,division = division,section=section)
   saveRDS(data,file='../../data/data.rds')
+  saveRDS(dataRaw,file='../../data/dataRaw.rds')
 } else{
   data=readRDS(file='../../data/data.rds')
+  dataRaw=readRDS(file='../../data/dataRaw.rds')
 }
 head(data)
 data %>%
