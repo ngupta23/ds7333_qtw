@@ -15,11 +15,7 @@ library(foreach)
 library(stringr)
 library(iterators)
 
-<<<<<<< HEAD
 years = c(1999:2012)
-=======
-years = c(1992:2012)
->>>>>>> 71a159feff9a1215e320dbf28c4cec963947e88b
 division = 'Overall+Women' #'Overall+Men"
 section = '10M' 
 ```
@@ -38,17 +34,10 @@ getTable = function(year,division,section,page){
     html_nodes("table")  %>% 
     html_table(fill=TRUE) 
   out = t[[1]] %>%
-<<<<<<< HEAD
     mutate(year=year, divisionTitle=division, section=section, page=page, link=link)
 }
 
 getTables  = function(years,division,section,useCachedWebData = FALSE){
-=======
-    mutate(year=year, division=division, section=section, page=page, link=link)
-}
-
-getTables  = function(years,division,section){
->>>>>>> 71a159feff9a1215e320dbf28c4cec963947e88b
   library(progress)
   library(doParallel)
   library(doSNOW)
@@ -58,7 +47,6 @@ getTables  = function(years,division,section){
   pb <- progress::progress_bar$new(total = length(years),format='[:bar] :percent :eta')
   progress <- function(n) pb$tick()
   
-<<<<<<< HEAD
   if(useCachedWebData) {
     dataRaw=NULL
     dataRaw = foreach(y=years
@@ -87,32 +75,8 @@ getTables  = function(years,division,section){
   } else {
     dataRaw= readRDS(file='../../data/dataRaw.rds')
   }
-=======
-  dataRaw=NULL
-  dataRaw = foreach(y=years
-                    ,.combine=rbind,.export=c('getTable','getLink')
-                    ,.options.snow = list(progress=progress)) %dopar%
-    {
-      library(foreach)
-      library(rvest)
-      library(dplyr)
-      isCompleted=FALSE
-      dataRaw=foreach(p=c(1:1000),.combine=rbind) %do%
-        if(!isCompleted) {
-          message('getting year:',y, ' page:',p,appendLF = F)
-          table = getTable(year=y
-                           ,division=division
-                           ,section=section
-                           ,page=p)
-          message(' rows:',nrow(table))
-          isCompleted = nrow(table)==0
-          return(table)
-        }
-      return(dataRaw)
-    }
-  stopCluster(cl)
->>>>>>> 71a159feff9a1215e320dbf28c4cec963947e88b
-  data = dataRaw %>%
+
+    data = dataRaw %>%
     separate(col='Name',c('Name','Gender'),sep='[\\(\\)]',extra='drop',remove=TRUE) %>%
     separate(col='PiS/TiS',c('PiS','TiS'),sep='\\/',extra='drop',remove=TRUE) %>%
     separate(col='PiD/TiD',c('PiD','TiD'),sep='\\/',extra='drop',remove=TRUE) %>%
@@ -120,17 +84,11 @@ getTables  = function(years,division,section){
     mutate(Race = trimws(substr(Race,5,100))
            ,DivisionCode =  trimws(substr(Division,1,1))
            ,DivisionNum =  trimws(substr(Division,3,100))
-<<<<<<< HEAD
            #,Time = lubridate::hms(gsub('\\*\\*','',Time))
            ,Time = lubridate::parse_date_time(gsub('\\*\\*','',Time), orders = c("HMS", "MS"))
            ,TimeMins = second(Time)/60 + minute(Time)  + hour(Time)*60
            #,Pace = lubridate::ms(Pace)
            ,Pace = lubridate::parse_date_time(gsub('\\*\\*','',Pace), orders = c("HMS", "MS"))
-=======
-           ,Time = lubridate::hms(Time)
-           ,TimeMins = second(Time)/60 + minute(Time)  + hour(Time)*60
-           ,Pace = lubridate::ms(Pace)
->>>>>>> 71a159feff9a1215e320dbf28c4cec963947e88b
            ,PaceMins = second(Pace)/60 + minute(Pace)  + hour(Pace)*60
            ,Age = as.numeric(Age)
            ,PiS = as.numeric(PiS)
@@ -138,27 +96,14 @@ getTables  = function(years,division,section){
            ,PiD = as.numeric(PiD)
            ,TiD = as.numeric(TiD)
     )
-<<<<<<< HEAD
   return(data )
-=======
-  return(data) 
->>>>>>> 71a159feff9a1215e320dbf28c4cec963947e88b
 }
 
 ```
 
 ```{r}
-<<<<<<< HEAD
 data=getTables(years=years,division = division,section=section,useCachedWebData = TRUE)
 saveRDS(data,file='../../data/data.rds')
-=======
-if(F){
-  data=getTables(years=years,division = division,section=section)
-  saveRDS(data,file='../../data/data.rds')
-} else{
-  data=readRDS(file='../../data/data.rds')
-}
->>>>>>> 71a159feff9a1215e320dbf28c4cec963947e88b
 head(data)
 data %>%
   group_by(year) %>%
