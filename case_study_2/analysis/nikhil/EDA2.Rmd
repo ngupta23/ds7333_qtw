@@ -1,0 +1,161 @@
+---
+title: "Case Study 2 - EDA"
+author: "Nikhil Gupta"
+date: "`r Sys.time()`"
+always_allow_html: yes
+output:
+  github_document:
+    toc: true
+    toc_depth: 6
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+
+```{r}
+data = readRDS("../../data/data.rds")
+str(data)
+```
+
+
+```{r}
+summary(data)
+```
+
+```{r}
+head(data)
+```
+
+
+```{r}
+unique(data$Race)
+unique(data$Gender)
+unique(data %>% arrange(Age) %>%  select(Age) %>%  pluck(1)) 
+unique(data %>% arrange(Division) %>%  select(Division) %>%  pluck(1)) 
+```
+
+* Some issues with Gender --> Does it matter?
+
+# Missing Values
+
+```{r}
+data %>% 
+  select_if(function(x) any(is.na(x))) %>% 
+  summarise_each(~ sum(is.na(.))) 
+```
+
+```{r}
+noresults = data %>% dplyr::filter(Division == "NR")
+dim(noresults)
+head(noresults)
+```
+
+
+```{r}
+noage = data %>% dplyr::filter(is.na(Age))
+dim(noage)
+head(noage)
+```
+
+```{r}
+setdiff(noage, noresults)
+```
+
+* This seems to be an issue. It looks like this person is placed first in the division, but age is not set so she has been classified as W8099 and the time seems to be off from what would be expected from this age bracket.
+* TODO: Fix this
+
+```{r}
+# Remove no results
+data = data %>% 
+  dplyr::filter(Division != "NR")
+```
+
+# Participants by Year
+```{r}
+plotdata = data %>% 
+  group_by(year) %>% 
+  summarise(count=n()) 
+
+plotdata %>% 
+  ggplot(aes(x=year, y=count)) +
+  geom_line() +
+  geom_point()
+
+plotdata %>% 
+  ggplot(aes(x = year, y = count)) + 
+  geom_bar(stat = "identity")
+```
+
+```{r}
+# Alternate colored by Division
+plotdata = data %>% 
+  group_by(year, Division) %>% 
+  summarise(count = n())
+
+plotdata %>% 
+  ggplot(aes(x = year, y = count, fill = Division)) + 
+  geom_bar(stat = "identity", position = "stack") # +
+```
+
+# Age Brackets by Year
+
+```{r}
+plotdata_by_year = data %>% 
+  group_by(year) %>% 
+  summarise(count_year = n())
+
+plotdata_by_year_div = data %>% 
+  group_by(year, Division) %>% 
+  summarise(count_year_div = n())
+
+
+plotdata = plotdata_by_year %>% 
+  plyr::join(plotdata_by_year_div, by = "year", type = "full") %>% 
+  mutate(percent = round(count_year_div/count_year*100,1))
+  
+plotdata %>% 
+  ggplot(aes(x = year, y = percent, fill = Division)) + 
+  geom_bar(stat = "identity", position = "stack")
+```
+
+# Race Times
+
+```{r}
+data %>% 
+  mutate_at("year", as.factor) %>% 
+  ggplot(aes(x=year, y=TimeMins)) + 
+  geom_boxplot()
+```
+
+
+```{r fig.height=8, fig.width=12}
+data %>% 
+  dplyr::filter(!(Division %in% c("W8099", "W7579"))) %>% 
+  mutate_at("year", as.factor) %>% 
+  ggplot(aes(x=year, y=TimeMins, fill=year)) + 
+  geom_boxplot() +
+  facet_wrap(. ~ Division, ncol=4) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  coord_flip()
+```
+
+```{r fig.height=4, fig.width=12}
+data %>% 
+  dplyr::filter(Division %in% c("W2529", "W3034", "W3539", "W4044")) %>% 
+  mutate_at("year", as.factor) %>% 
+  ggplot(aes(x=year, y=TimeMins, fill=year)) + 
+  geom_boxplot() +
+  facet_wrap(. ~ Division, ncol=4) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  coord_flip()
+```
