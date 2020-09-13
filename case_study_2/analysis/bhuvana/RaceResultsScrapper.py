@@ -5,7 +5,7 @@ import time as t
 import datetime as dt
 import multiprocessing
 import concurrent.futures
-from joblib import Parallel, delayed
+#from joblib import Parallel, delayed
 import sys
 import traceback
 import re
@@ -160,6 +160,7 @@ def main():
 
     scrapper = RaceResultsScrapper(url, urlOptionDictionary, header,years,separator)
     #processed_result = Parallel(n_jobs=num_cores)(delayed(scrapper.scrapeResultsforYears)(year, 1000) for year in years)
+
     with concurrent.futures.ProcessPoolExecutor() as executor:
         processed_result = executor.map(scrapper.scrapeResultsforYears,years)
 
