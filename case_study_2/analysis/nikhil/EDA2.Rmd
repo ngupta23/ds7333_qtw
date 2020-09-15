@@ -4,12 +4,12 @@ author: "Nikhil Gupta"
 date: "`r Sys.time()`"
 always_allow_html: yes
 output:
-  github_document:
-    toc: true
-    toc_depth: 6
   html_document:
     toc: true
     toc_float: true
+    toc_depth: 6
+  github_document:
+    toc: true
     toc_depth: 6
 ---
 
