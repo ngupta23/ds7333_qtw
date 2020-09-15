@@ -17,8 +17,10 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# Load Libraries
 ```{r}
 library(tidyverse)
+library(plotly)
 ```
 
 
@@ -86,14 +88,16 @@ plotdata = data %>%
   group_by(year) %>% 
   summarise(count=n()) 
 
-plotdata %>% 
+p = plotdata %>% 
   ggplot(aes(x=year, y=count)) +
   geom_line() +
   geom_point()
+ggplotly(p, tooltip="text")
 
-plotdata %>% 
+p = plotdata %>% 
   ggplot(aes(x = year, y = count)) + 
   geom_bar(stat = "identity")
+ggplotly(p, tooltip="text")
 ```
 
 ```{r}
@@ -102,9 +106,10 @@ plotdata = data %>%
   group_by(year, Division) %>% 
   summarise(count = n())
 
-plotdata %>% 
+p = plotdata %>% 
   ggplot(aes(x = year, y = count, fill = Division)) + 
-  geom_bar(stat = "identity", position = "stack") # +
+  geom_bar(stat = "identity", position = "stack") 
+ggplotly(p, tooltip="text")
 ```
 
 # Age Brackets by Year
@@ -118,7 +123,6 @@ plotdata_by_year_div = data %>%
   group_by(year, Division) %>% 
   summarise(count_year_div = n())
 
-
 plotdata = plotdata_by_year %>% 
   plyr::join(plotdata_by_year_div, by = "year", type = "full") %>% 
   mutate(percent = round(count_year_div/count_year*100,1))
@@ -131,15 +135,17 @@ plotdata %>%
 # Race Times
 
 ```{r}
-data %>% 
+p = data %>% 
   mutate_at("year", as.factor) %>% 
   ggplot(aes(x=year, y=TimeMins)) + 
   geom_boxplot()
+
+ggplotly(p, tooltip="text")
 ```
 
 
 ```{r fig.height=8, fig.width=12}
-data %>% 
+p = data %>% 
   dplyr::filter(!(Division %in% c("W8099", "W7579"))) %>% 
   mutate_at("year", as.factor) %>% 
   ggplot(aes(x=year, y=TimeMins, fill=year)) + 
@@ -147,10 +153,13 @@ data %>%
   facet_wrap(. ~ Division, ncol=4) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
   coord_flip()
+
+p
+#ggplotly(p, tooltip="text")
 ```
 
-```{r fig.height=4, fig.width=12}
-data %>% 
+```{r fig.height=6, fig.width=12}
+p = data %>% 
   dplyr::filter(Division %in% c("W2529", "W3034", "W3539", "W4044")) %>% 
   mutate_at("year", as.factor) %>% 
   ggplot(aes(x=year, y=TimeMins, fill=year)) + 
@@ -158,4 +167,44 @@ data %>%
   facet_wrap(. ~ Division, ncol=4) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
   coord_flip()
+
+m <- list(
+  l = 100,
+  r = 50,
+  b = 100,
+  t = 50,
+  pad = 4
+)
+gp = ggplotly(p, tooltip="text", width=800, height=600) %>%
+  layout(
+    autosize = F,
+    margin=m,
+    legend = list(orientation = "h", xanchor = "center", x = 0.5, y = -0.15)
+    ) %>% 
+  style(legendgroup = NULL)
+# gp
+
+# find the annotation you want to move
+# Based on https://stackoverflow.com/questions/42763280/r-ggplot-and-plotly-axis-margin-wont-change
+labels = c("year", "TimeMins")
+for(i in seq_along(gp[['x']][['layout']][['annotations']])){
+  for(label in labels){
+    if (gp[['x']][['layout']][['annotations']][[i]]$text == label){
+      print(paste(
+        label, "Index: ", i, "X, Y: ",
+        gp[['x']][['layout']][['annotations']][[i]]$x,
+        gp[['x']][['layout']][['annotations']][[i]]$y)
+      )
+    }
+  }
+}
+
+# X Label
+gp[['x']][['layout']][['annotations']][[1]]$y = -0.1
+# Y Label
+gp[['x']][['layout']][['annotations']][[2]]$x = -0.075
+# Legend XY
+gp[['x']][['layout']][['annotations']][[7]]$x = -0.025
+gp[['x']][['layout']][['annotations']][[7]]$y = -0.225
+gp
 ```
