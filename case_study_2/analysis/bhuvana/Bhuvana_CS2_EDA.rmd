@@ -85,10 +85,8 @@ p <- ggplot(AverageParticipantAge, aes(Year, Age, fill = Age)) +
   )
 p
 
-p + gganimate :: transition_states(Year, wrap = FALSE) +
-  shadow_mark() +
-  enter_grow() +
-  enter_fade()
+#p + gganimate :: transition_states(Year, wrap = FALSE) +
+  #shadow_mark() +  enter_grow() +  enter_fade()
 ```
 
 ```{r visualize missing values}
