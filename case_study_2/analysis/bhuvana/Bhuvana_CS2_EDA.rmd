@@ -63,7 +63,7 @@ isNR <- function(x)
 {
  y <- ifelse(x == "NR",1,0)
 }
-sum(isNR(raceResults$Age))
+#sum(isNR(raceResults$Age))
 summaryOfNRValues <- sapply(raceResults, function(x) sum(isNR(x)))
 ```
 
