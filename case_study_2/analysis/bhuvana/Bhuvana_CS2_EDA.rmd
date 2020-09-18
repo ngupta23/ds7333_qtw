@@ -19,6 +19,8 @@ When you click the **Knit** button a document will be generated that includes bo
 library(dplyr)
 library(ggplot2)
 library(naniar)
+library(gganimate)
+library(gapminder)
 
 ###Load data from csv file
 raceResults  = read.csv("RaceResults99-2k12.csv")
@@ -38,7 +40,7 @@ summary(raceResults)
 class(raceResults$Year)
 ### Check if the year has only unique Numeric values.
 ### Year field was added during the data scraping process.
-years <- raceResult$Year
+years <- raceResults$Year
 
 uniqueYear <- unique(years)
 print(uniqueYear)
@@ -64,6 +66,31 @@ isNR <- function(x)
 sum(isNR(raceResults$Age))
 summaryOfNRValues <- sapply(raceResults, function(x) sum(isNR(x)))
 ```
+
+```{r average age across years}
+
+AverageParticipantAge <- raceResults %>%
+  group_by(Year) %>%
+  summarise(Age = mean(as.numeric(Age)))
+AverageParticipantAge
+
+p <- ggplot(AverageParticipantAge, aes(Year, Age, fill = Age)) +
+  geom_col() +
+  scale_fill_distiller(palette = "Blues", direction = 1) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    panel.grid.major.y = element_line(color = "white"),
+    panel.ontop = TRUE
+  )
+p
+
+p + gganimate :: transition_states(Year, wrap = FALSE) +
+  shadow_mark() +
+  enter_grow() +
+  enter_fade()
+```
+
 ```{r visualize missing values}
 ###Visualizing NR values using naniar package
 nrTona <- function(x){
@@ -82,44 +109,9 @@ vis_miss(raceResults,warn_large_data=F)
 ```
 ### Divisions in dataset
 ```{r }
-head(raceResults$Division)
-uniqueDivisions <- unique(raceResults$Division)
-uniqueDivisions
+
 ```
 
-```{r }
-### TODO Data cleaning 
-### Year - Non Numeric values in year column
-### Age- non numeric NR values
 
-class(raceResult$Year)
-unique(raceResult$Year)
-uniqueYear <- unique(raceResult$Year)
-#numbers_only <- function(x) !grepl("\\D", x)
-#for(val in uniqueYear){
-  #isNumeric = numbers_only(unique(val))
-    #if(!isNumeric){
-      #print(paste0("Year Value is not unique ",val))
-      #raceResult = filter(raceResult, Year %in% val)
-
-    #}
-#}
-yearParticipation = raceResult$Year
-y = yearParticipation
-class(yearParticipation)
-
-## Participant Group by Age for all years
-participantAges = raceResult$Age
-age = participantAges
-class(age)
-
-yearAgeCombo = raceResult%>% select(1,3)
-
-unique(yearAgeCombo$Year)
-unique(yearAgeCombo$Age)
-
-ggplot(data=yearAgeCombo, aes(x=as.numeric(levels(yearAgeCombo$Year)), y=count(as.numeric(levels(yearAgeCombo$Year))))) +
-  geom_bar(stat="identity")
-```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
