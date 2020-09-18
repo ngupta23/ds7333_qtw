@@ -15,6 +15,9 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
+## Loading the csv file into R.
+Loading the CSV data generated from the python web scraper code.
+
 ```{r load the csv file with data from 1999 to 2012}
 library(dplyr)
 library(ggplot2)
@@ -29,15 +32,13 @@ summary(raceResults)
 str(raceResults)
 ```
 
-## Analyzing data
+## Analyzing Cherry Blossom 10M Women Race Results data
 
-You can also embed plots, for example:
-
+Number of participants across the years 1999 and 2012.
 ```{r check the data values, echo=FALSE}
 
-summary(raceResults)
 
-class(raceResults$Year)
+#class(raceResults$Year)
 ### Check if the year has only unique Numeric values.
 ### Year field was added during the data scraping process.
 years <- raceResults$Year
@@ -57,15 +58,8 @@ theme(plot.title = element_text(hjust = 0.5))
 p+ coord_flip()
 ```
 
-### Summary of all missing values in the data frame.
-```{r missing values}
-isNR <- function(x)
-{
- y <- ifelse(x == "NR",1,0)
-}
-#sum(isNR(raceResults$Age))
-summaryOfNRValues <- sapply(raceResults, function(x) sum(isNR(x)))
-```
+
+## Average age of participants across the years 1999 and 2012
 
 ```{r average age across years}
 
@@ -88,26 +82,34 @@ p
 #p + gganimate :: transition_states(Year, wrap = FALSE) +
   #shadow_mark() +  enter_grow() +  enter_fade()
 ```
+## Summary of all missing values in the data frame.
 
+```{r missing values}
+isNR <- function(x)
+{
+ y <- ifelse(x == "NR",1,0)
+}
+#sum(isNR(raceResults$Age))
+summaryOfNRValues <- sapply(raceResults, function(x) sum(isNR(x)))
+summaryOfNRValues
+```
+
+## Visualizing the missing values in the dataframe.
 ```{r visualize missing values}
 ###Visualizing NR values using naniar package
-nrTona <- function(x){
-   x1 <- ifelse(x == "NR",NA,x)
-}
-raceResults$Division <- sapply(raceResults$Division, function(x) nrTona(x))
-raceResults$Age <- sapply(raceResults$Age, function(x) nrTona(x))
-raceResults$Pid <- sapply(raceResults$Pid, function(x) nrTona(x))
-raceResults$Tid <- sapply(raceResults$Tid, function(x) nrTona(x))
-raceResults$Hometown <- sapply(raceResults$Hometown, function(x) nrTona(x))
-raceResults$Country <- sapply(raceResults$Country, function(x) nrTona(x))
 
+raceResults <- raceResults %>% replace_with_na(replace = list(Division = "NR",Age="NR",Pid="NR",Tid="NR",Hometown="NR",Country="NR"))
+head(raceResults)
 gg_miss_upset(raceResults)
-vis_miss(raceResults,warn_large_data=F)
+vis_miss(raceResults,warn_large_data=F,sort_miss=T)
 
 ```
-### Divisions in dataset
-```{r }
 
+## Analyzing Women Divisions in dataset
+```{r }
+#head(raceResults$Division)
+uniqueDivisions <- unique(raceResults$Division)
+uniqueDivisions
 ```
 
 
