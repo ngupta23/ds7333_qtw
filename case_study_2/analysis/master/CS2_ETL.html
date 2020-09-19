@@ -407,7 +407,7 @@ getTable = function(year,division,section,page){
     mutate(year=year, divisionTitle=division, section=section, page=page, link=link)
 }
 
-getRawTable  = function(years,division,section,useCachedWebData = FALSE){
+getAllTables  = function(years,division,section,useCachedWebData = FALSE){
   library(progress)
   library(doParallel)
   library(doSNOW)
@@ -457,7 +457,7 @@ getRawTable  = function(years,division,section,useCachedWebData = FALSE){
   return(dataRaw)
 }
 
-parseRawTable =function(dataRaw){
+transformAllTables =function(dataRaw){
   #fix columns and content
   data = dataRaw %&gt;%
     separate(col=&#39;Name&#39;,c(&#39;Name&#39;,&#39;Gender&#39;),sep=&#39;[\\(\\)]&#39;
@@ -466,11 +466,17 @@ parseRawTable =function(dataRaw){
              ,extra=&#39;drop&#39;,remove=TRUE) %&gt;% #split PiS/TiS cols
     separate(col=&#39;PiD/TiD&#39;,c(&#39;PiD&#39;,&#39;TiD&#39;),sep=&#39;\\/&#39;
              ,extra=&#39;drop&#39;,remove=TRUE) %&gt;% #split PiD/TiD cols
-    separate(col=&#39;Hometown&#39;,c(&#39;Hometown&#39;,&#39;Home State&#39;)
-             ,sep=&#39;,&#39;,extra=&#39;drop&#39;,remove=TRUE,fill=&#39;right&#39;) %&gt;% #split Hometown and state
-    mutate(Race = trimws(substr(Race,5,100)) #gram race type race cols
-           ,DivisionCode =  trimws(substr(Division,1,1)) #grab division code from division col
-           ,DivisionNum =  trimws(substr(Division,3,100)) #grab division code from division col
+    separate(col=&#39;Hometown&#39;,c(&#39;Hometown&#39;,&#39;HomeState&#39;)
+             ,sep=&#39;,&#39;,extra=&#39;merge&#39;,remove=TRUE,fill=&#39;right&#39;) %&gt;% #split Hometown and state
+    mutate(Hometown=trimws(Hometown) #remove trim space
+           ,Hometown =  ifelse(Hometown %in% c(&#39;NR&#39;,&#39;&#39;),NA, Hometown) #convert NR and &#39;&#39; to NA
+           ,HomeState = trimws(HomeState) #remove trim space
+           ,HomeState = ifelse(HomeState == &#39;&#39;,NA, HomeState) #convert &#39;&#39; to NA
+           ,HomeState = trimws(toupper(ifelse(is.na(HomeState),Hometown,HomeState))) #if state is null, it is saved in the hometown
+           ,HomeCountry = ifelse(HomeState %in% toupper(c(&#39;DC&#39;,state.abb)), &#39;USA&#39;,HomeState) #check if is a USA state
+           ,Hometown = ifelse(toupper(Hometown) == HomeState,NA,Hometown) #set town to NA if is the same of state
+           ,HomeState = ifelse(HomeState == HomeCountry,NA,HomeState) #set State  to NA if is = to coutnry
+           ,Race = trimws(substr(Race,5,100)) #gram race type race cols
            ,Time = parse_date_time(gsub(&#39;\\*\\*&#39;,&#39;&#39;,Time)
                                    , orders = c(&quot;HMS&quot;, &quot;MS&quot;)) #convert time col to time format
            ,TimeMins = second(Time)/60 + minute(Time)  + hour(Time)*60  #convert time to minus
@@ -482,13 +488,15 @@ parseRawTable =function(dataRaw){
            ,TiS = as.numeric(TiS) #convert TiS to numeric
            ,PiD = as.numeric(PiD) #convert PiD to numeric
            ,TiD = as.numeric(TiD) #convert TiD to numeric
-    )
+    ) 
+    
+  #fixing missing home state (the state is save as town)
   return(data )
 }</code></pre>
 </div>
 <div id="run-etl" class="section level1">
 <h1>Run ETL</h1>
-<pre class="r"><code>dataRaw=getRawTable(years=years,division = division,section=section,useCachedWebData = TRUE)</code></pre>
+<pre class="r"><code>dataRaw=getAllTables(years=years,division = division,section=section,useCachedWebData = TRUE)</code></pre>
 <pre><code>## Loading required package: parallel</code></pre>
 <pre><code>## Loading required package: snow</code></pre>
 <pre><code>## 
@@ -499,7 +507,7 @@ parseRawTable =function(dataRaw){
 ##     clusterExport, clusterMap, clusterSplit, makeCluster, parApply,
 ##     parCapply, parLapply, parRapply, parSapply, splitIndices,
 ##     stopCluster</code></pre>
-<pre class="r"><code>data=parseRawTable(dataRaw=dataRaw)</code></pre>
+<pre class="r"><code>data=transformAllTables(dataRaw=dataRaw)</code></pre>
 <pre><code>## Warning: Expected 2 pieces. Missing pieces filled with `NA` in 20 rows [3, 8,
 ## 17, 2176, 7135, 7766, 8777, 9680, 10831, 18391, 18399, 18981, 19694, 20735,
 ## 21480, 22189, 28388, 29223, 38455, 47506].</code></pre>
@@ -511,7 +519,7 @@ parseRawTable =function(dataRaw){
 ## i NAs introduced by coercion
 ## i Input `PiD` is `as.numeric(PiD)`.</code></pre>
 <pre><code>## Warning in mask$eval_all_mutate(dots[[i]]): NAs introduced by coercion</code></pre>
-<pre class="r"><code>if(F) saveRDS(data,file=&#39;../../data/data.rds&#39;)
+<pre class="r"><code>if(T) saveRDS(data,file=&#39;../../data/data.rds&#39;)
 head(data)</code></pre>
 <pre><code>##   Race               Name Gender Age                Time                Pace
 ## 1  10M        Jane Omoro       W  26 0000-01-01 00:53:37 0000-01-01 00:05:22
@@ -520,13 +528,13 @@ head(data)</code></pre>
 ## 4  10M     Eunice Sagero       W  20 0000-01-01 00:53:55 0000-01-01 00:05:24
 ## 5  10M   Alla Zhilyayeva       W  29 0000-01-01 00:54:08 0000-01-01 00:05:25
 ## 6  10M    Teresa Wanjiku       W  24 0000-01-01 00:54:10 0000-01-01 00:05:25
-##   PiS  TiS Division PiD TiD Hometown Home State year divisionTitle section page
-## 1   1 2358    W2529   1 559    Kenya       &lt;NA&gt; 1999 Overall+Women     10M    1
-## 2   2 2358    W2529   2 559    Kenya       &lt;NA&gt; 1999 Overall+Women     10M    1
-## 3   3 2358       NR  NA  NA   Russia       &lt;NA&gt; 1999 Overall+Women     10M    1
-## 4   4 2358    W2024   1 196    Kenya       &lt;NA&gt; 1999 Overall+Women     10M    1
-## 5   5 2358    W2529   3 559   Russia       &lt;NA&gt; 1999 Overall+Women     10M    1
-## 6   6 2358    W2024   2 196    Kenya       &lt;NA&gt; 1999 Overall+Women     10M    1
+##   PiS  TiS Division PiD TiD Hometown HomeState year divisionTitle section page
+## 1   1 2358    W2529   1 559     &lt;NA&gt;      &lt;NA&gt; 1999 Overall+Women     10M    1
+## 2   2 2358    W2529   2 559     &lt;NA&gt;      &lt;NA&gt; 1999 Overall+Women     10M    1
+## 3   3 2358       NR  NA  NA     &lt;NA&gt;      &lt;NA&gt; 1999 Overall+Women     10M    1
+## 4   4 2358    W2024   1 196     &lt;NA&gt;      &lt;NA&gt; 1999 Overall+Women     10M    1
+## 5   5 2358    W2529   3 559     &lt;NA&gt;      &lt;NA&gt; 1999 Overall+Women     10M    1
+## 6   6 2358    W2024   2 196     &lt;NA&gt;      &lt;NA&gt; 1999 Overall+Women     10M    1
 ##                                                                                                              link
 ## 1 http://www.cballtimeresults.org/performances?utf8=%E2%9C%93&amp;section=10M&amp;year=1999&amp;division=Overall+Women&amp;page=1
 ## 2 http://www.cballtimeresults.org/performances?utf8=%E2%9C%93&amp;section=10M&amp;year=1999&amp;division=Overall+Women&amp;page=1
@@ -534,13 +542,13 @@ head(data)</code></pre>
 ## 4 http://www.cballtimeresults.org/performances?utf8=%E2%9C%93&amp;section=10M&amp;year=1999&amp;division=Overall+Women&amp;page=1
 ## 5 http://www.cballtimeresults.org/performances?utf8=%E2%9C%93&amp;section=10M&amp;year=1999&amp;division=Overall+Women&amp;page=1
 ## 6 http://www.cballtimeresults.org/performances?utf8=%E2%9C%93&amp;section=10M&amp;year=1999&amp;division=Overall+Women&amp;page=1
-##   DivisionCode DivisionNum TimeMins PaceMins
-## 1            W         529 53.61667 5.366667
-## 2            W         529 53.63333 5.366667
-## 3            N             53.66667 5.366667
-## 4            W         024 53.91667 5.400000
-## 5            W         529 54.13333 5.416667
-## 6            W         024 54.16667 5.416667</code></pre>
+##   HomeCountry TimeMins PaceMins
+## 1       KENYA 53.61667 5.366667
+## 2       KENYA 53.63333 5.366667
+## 3      RUSSIA 53.66667 5.366667
+## 4       KENYA 53.91667 5.400000
+## 5      RUSSIA 54.13333 5.416667
+## 6       KENYA 54.16667 5.416667</code></pre>
 <pre class="r"><code>data %&gt;%
   group_by(year) %&gt;%
   summarize(rows = n())</code></pre>
@@ -562,8 +570,9 @@ head(data)</code></pre>
 ## 12  2010  8853
 ## 13  2011  9030
 ## 14  2012  9727</code></pre>
-<div id="data-validation" class="section level2">
-<h2>Data Validation</h2>
+</div>
+<div id="check-data-structurs" class="section level1">
+<h1>Check Data Structurs</h1>
 <pre class="r"><code>  summary(data)</code></pre>
 <pre><code>##      Race               Name              Gender               Age       
 ##  Length:75866       Length:75866       Length:75866       Min.   : 7.00  
@@ -589,7 +598,7 @@ head(data)</code></pre>
 ##  3rd Qu.:8853                      3rd Qu.: 816.0   3rd Qu.:1678  
 ##  Max.   :9729                      Max.   :5302.0   Max.   :2803  
 ##                                    NA&#39;s   :20       NA&#39;s   :20    
-##    Hometown          Home State             year      divisionTitle     
+##    Hometown          HomeState              year      divisionTitle     
 ##  Length:75866       Length:75866       Min.   :1999   Length:75866      
 ##  Class :character   Class :character   1st Qu.:2005   Class :character  
 ##  Mode  :character   Mode  :character   Median :2008   Mode  :character  
@@ -597,7 +606,7 @@ head(data)</code></pre>
 ##                                        3rd Qu.:2010                     
 ##                                        Max.   :2012                     
 ##                                                                         
-##    section               page           link           DivisionCode      
+##    section               page           link           HomeCountry       
 ##  Length:75866       Min.   :  1.0   Length:75866       Length:75866      
 ##  Class :character   1st Qu.: 68.0   Class :character   Class :character  
 ##  Mode  :character   Median :140.0   Mode  :character   Mode  :character  
@@ -605,15 +614,14 @@ head(data)</code></pre>
 ##                     3rd Qu.:246.0                                        
 ##                     Max.   :487.0                                        
 ##                                                                          
-##  DivisionNum           TimeMins         PaceMins     
-##  Length:75866       Min.   : 51.73   Min.   : 5.167  
-##  Class :character   1st Qu.: 88.65   1st Qu.: 8.867  
-##  Mode  :character   Median : 97.48   Median : 9.750  
-##                     Mean   : 98.22   Mean   : 9.823  
-##                     3rd Qu.:106.97   3rd Qu.:10.700  
-##                     Max.   :177.52   Max.   :17.750  
+##     TimeMins         PaceMins     
+##  Min.   : 51.73   Min.   : 5.167  
+##  1st Qu.: 88.65   1st Qu.: 8.867  
+##  Median : 97.48   Median : 9.750  
+##  Mean   : 98.22   Mean   : 9.823  
+##  3rd Qu.:106.97   3rd Qu.:10.700  
+##  Max.   :177.52   Max.   :17.750  
 ## </code></pre>
-</div>
 </div>
 
 

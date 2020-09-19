@@ -3,8 +3,8 @@ title: "MaxCs2"
 author: "Max Moro"
 date: "9/9/2020"
 output:
-  html_document: default
   word_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -49,7 +49,7 @@ getTable = function(year,division,section,page){
     mutate(year=year, divisionTitle=division, section=section, page=page, link=link)
 }
 
-getRawTable  = function(years,division,section,useCachedWebData = FALSE){
+getAllTables  = function(years,division,section,useCachedWebData = FALSE){
   library(progress)
   library(doParallel)
   library(doSNOW)
@@ -99,7 +99,7 @@ getRawTable  = function(years,division,section,useCachedWebData = FALSE){
   return(dataRaw)
 }
 
-parseRawTable =function(dataRaw){
+transformAllTables =function(dataRaw){
   #fix columns and content
   data = dataRaw %>%
     separate(col='Name',c('Name','Gender'),sep='[\\(\\)]'
@@ -108,11 +108,17 @@ parseRawTable =function(dataRaw){
              ,extra='drop',remove=TRUE) %>% #split PiS/TiS cols
     separate(col='PiD/TiD',c('PiD','TiD'),sep='\\/'
              ,extra='drop',remove=TRUE) %>% #split PiD/TiD cols
-    separate(col='Hometown',c('Hometown','Home State')
-             ,sep=',',extra='drop',remove=TRUE,fill='right') %>% #split Hometown and state
-    mutate(Race = trimws(substr(Race,5,100)) #gram race type race cols
-           ,DivisionCode =  trimws(substr(Division,1,1)) #grab division code from division col
-           ,DivisionNum =  trimws(substr(Division,3,100)) #grab division code from division col
+    separate(col='Hometown',c('Hometown','HomeState')
+             ,sep=',',extra='merge',remove=TRUE,fill='right') %>% #split Hometown and state
+    mutate(Hometown=trimws(Hometown) #remove trim space
+           ,Hometown =  ifelse(Hometown %in% c('NR',''),NA, Hometown) #convert NR and '' to NA
+           ,HomeState = trimws(HomeState) #remove trim space
+           ,HomeState = ifelse(HomeState %in% c('NR',''),NA, HomeState) #convert NR and '' to NA
+           ,HomeState = trimws(toupper(ifelse(is.na(HomeState),Hometown,HomeState))) #if state is null, it is saved in the hometown
+           ,HomeCountry = ifelse(HomeState %in% toupper(c('DC',state.abb)), 'USA',HomeState) #check if is a USA state
+           ,Hometown = ifelse(toupper(Hometown) == HomeState,NA,Hometown) #set town to NA if is the same of state
+           ,HomeState = ifelse(HomeState == HomeCountry,NA,HomeState) #set State  to NA if is = to coutnry
+           ,Race = trimws(substr(Race,5,100)) #gram race type race cols
            ,Time = parse_date_time(gsub('\\*\\*','',Time)
                                    , orders = c("HMS", "MS")) #convert time col to time format
            ,TimeMins = second(Time)/60 + minute(Time)  + hour(Time)*60  #convert time to minus
@@ -124,7 +130,9 @@ parseRawTable =function(dataRaw){
            ,TiS = as.numeric(TiS) #convert TiS to numeric
            ,PiD = as.numeric(PiD) #convert PiD to numeric
            ,TiD = as.numeric(TiD) #convert TiD to numeric
-    )
+    ) 
+    
+  #fixing missing home state (the state is save as town)
   return(data )
 }
 ```
@@ -132,15 +140,15 @@ parseRawTable =function(dataRaw){
 # Run ETL
 
 ```{r}
-dataRaw=getRawTable(years=years,division = division,section=section,useCachedWebData = TRUE)
-data=parseRawTable(dataRaw=dataRaw)
+dataRaw=getAllTables(years=years,division = division,section=section,useCachedWebData = TRUE)
+data=transformAllTables(dataRaw=dataRaw)
 if(F) saveRDS(data,file='../../data/data.rds')
 head(data)
 data %>%
   group_by(year) %>%
   summarize(rows = n())
 ```
-## Data Validation
+# Check Data Structurs
 ```{r}
   summary(data)
 ```
