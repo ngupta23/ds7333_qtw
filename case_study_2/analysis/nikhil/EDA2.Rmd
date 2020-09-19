@@ -19,8 +19,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Load Libraries
 ```{r}
-library(tidyverse)
-library(plotly)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, plotly)
 ```
 
 
