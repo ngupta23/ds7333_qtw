@@ -1,16 +1,25 @@
 ---
 title: "Case Study 2"
 author: "Nikhil, Moro, Bhuvana"
-date: "9/18/2020"
-output: html_document
+date: "`r Sys.time()`"
+output:
+  word_document:
+    toc: yes
+    toc_depth: '6'
+  html_document:
+    toc: yes
+    toc_depth: 6
+    toc_float: yes
+  github_document:
+    toc: yes
+    toc_depth: 6
+always_allow_html: yes
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse)
-library(lubridate)
-library(stringr)
-
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, plotly, naniar)
 ```
 
 # reading Data from ETL
@@ -20,3 +29,279 @@ library(stringr)
 data = readRDS(file='../../data/data.rds')
 ```
 
+```{r}
+# TODO: Division Number is missing the first number of age
+head(data)
+```
+
+```{r}
+unique(data$Race)
+unique(data$Gender)
+unique(data %>% arrange(Age) %>%  select(Age) %>%  pluck(1)) 
+unique(data %>% arrange(Division) %>%  select(Division) %>%  pluck(1)) 
+```
+
+* TODO: Some issues with Gender --> Does it matter?
+
+# Missing Values
+
+```{r}
+colnames(data)
+```
+
+```{r}
+data %>% 
+  dplyr::filter(Division == "NR")
+```
+
+```{r}
+data %>% 
+  dplyr::filter(Age == "NR")
+```
+
+```{r}
+data %>% 
+  dplyr::filter(PiD == "NR")
+```
+
+
+```{r}
+data %>% 
+  dplyr::filter(Hometown == "NR")
+```
+
+
+```{r}
+# data = data %>%
+#   naniar::replace_with_na(
+#     replace = list(
+#       # Division = "NR", # No Results should not be converted to NA
+#       # Age="NR",  # does not have NR
+#       # PiD="NR", # does not have NR
+#       # TiD="NR", # does not have NR
+#       #Hometown="NR" #,
+#       # Country="NR" # Column missing
+#     )
+#   )
+```
+
+
+```{r}
+data %>% 
+  select_if(function(x) any(is.na(x))) %>% 
+  summarise_each(~ sum(is.na(.))) 
+```
+
+```{r}
+naniar::gg_miss_upset(data)
+naniar::vis_miss(data, warn_large_data=F, sort_miss=T)
+```
+
+```{r}
+noresults = data %>% dplyr::filter(Division == "NR")
+dim(noresults)
+noresults
+```
+
+```{r}
+noage = data %>% dplyr::filter(is.na(Age))
+dim(noage)
+noage
+```
+
+```{r}
+setdiff(noage, noresults)
+```
+
+* This seems to be an issue. It looks like this person is placed first in the division, but age is not set so she has been classified as W8099 and the time seems to be off from what would be expected from this age bracket.
+* TODO: Fix this
+
+```{r}
+# Remove no results
+data = data %>% 
+  dplyr::filter(Division != "NR")
+```
+
+# Basic EDA
+```{r}
+plotdata = data %>% 
+  group_by(year) %>% 
+  summarise(count=n()) 
+
+p = plotdata %>% 
+  ggplot(aes(x=year, y=count)) +
+  geom_line() +
+  geom_point()
+print(p)
+ggplotly(p, tooltip="text")
+
+p = plotdata %>% 
+  ggplot(aes(x = year, y = count)) + 
+  geom_bar(stat = "identity")
+print(p)
+ggplotly(p, tooltip="text")
+```
+
+```{r}
+participants_year_div = data %>% 
+  group_by(year, Division) %>% 
+  summarise(num_participants = n())
+```
+
+```{r fig.height=5, fig.width=8}
+participants_year_div %>% 
+  ggplot(aes(x=Division, y=year, fill=num_participants)) +
+    geom_tile() + 
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+    scale_fill_gradient2(low = "green", mid='darkorange', high = "darkred", na.value = NA
+                         #,midpoint=mean(c(max(participants_year_div$num_participants),min(participants_year_div$num_participants)))) + 
+                         ,midpoint=quantile(participants_year_div$num_participants, 0.9)[[1]]) + 
+    geom_text(data = participants_year_div, label = participants_year_div$num_participants)
+  
+```
+
+```{r}
+# Alternate colored by Division
+plotdata = data %>% 
+  group_by(year, Division) %>% 
+  summarise(count = n())
+
+p = plotdata %>% 
+  ggplot(aes(x = year, y = count, fill = Division)) + 
+  geom_bar(stat = "identity", position = "stack") 
+print(p)
+ggplotly(p, tooltip="text")
+```
+
+
+
+# Business Analysis
+
+## Age Brackets by Year
+
+```{r}
+plotdata_by_year = data %>% 
+  group_by(year) %>% 
+  summarise(count_year = n())
+
+plotdata_by_year_div = data %>% 
+  group_by(year, Division) %>% 
+  summarise(count_year_div = n())
+
+plotdata = plotdata_by_year %>% 
+  plyr::join(plotdata_by_year_div, by = "year", type = "full") %>% 
+  mutate(percent = round(count_year_div/count_year*100,1))
+  
+plotdata %>% 
+  ggplot(aes(x = year, y = percent, fill = Division)) + 
+  geom_bar(stat = "identity", position = "stack")
+```
+
+## Race Times
+
+```{r fig.height=4, fig.width=8}
+p = data %>% 
+  mutate_at("year", as.factor) %>% 
+  ggplot(aes(x=year, y=TimeMins, fill=year)) + 
+  geom_boxplot() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  coord_flip()
+print(p)
+#ggplotly(p, tooltip="text")
+```
+
+
+```{r fig.height=4, fig.width=8}
+p = data %>% 
+  # dplyr::filter(!(Division %in% c("W8099", "W7579"))) %>% 
+  mutate_at("year", as.factor) %>% 
+  ggplot(aes(x=Division, y=TimeMins, fill=Division)) + 
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  coord_flip()
+  
+print(p)
+#ggplotly(p, tooltip="text")
+```
+
+```{r fig.height=12, fig.width=12}
+p = data %>% 
+  dplyr::filter(!(Division %in% c("W8099", "W7579", "W7074", "W6569"))) %>% 
+  mutate_at("year", as.factor) %>% 
+  ggplot(aes(x=year, y=TimeMins, fill=year)) + 
+  geom_boxplot() +
+  facet_wrap(. ~ Division, ncol=2) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  coord_flip()
+
+print(p)
+#ggplotly(p, tooltip="text")
+```
+
+```{r fig.height=6, fig.width=12}
+p = data %>% 
+  dplyr::filter(Division %in% c("W2529", "W3034", "W3539", "W4044")) %>% 
+  mutate_at("year", as.factor) %>% 
+  ggplot(aes(x=year, y=TimeMins, fill=year)) + 
+  geom_boxplot() +
+  facet_wrap(. ~ Division, ncol=2) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  coord_flip()
+print(p)
+
+# m <- list(
+#   l = 100,
+#   r = 50,
+#   b = 100,
+#   t = 50,
+#   pad = 4
+# )
+# gp = ggplotly(p, tooltip="text", width=800, height=600) %>%
+#   layout(
+#     autosize = F,
+#     margin=m,
+#     legend = list(orientation = "h", xanchor = "center", x = 0.5, y = -0.15)
+#     ) %>% 
+#   style(legendgroup = NULL)
+# 
+# # find the annotation you want to move
+# # Based on https://stackoverflow.com/questions/42763280/r-ggplot-and-plotly-axis-margin-wont-change
+# labels = c("year", "TimeMins")
+# for(i in seq_along(gp[['x']][['layout']][['annotations']])){
+#   for(label in labels){
+#     if (gp[['x']][['layout']][['annotations']][[i]]$text == label){
+#       print(paste(
+#         label, "Index: ", i, "X, Y: ",
+#         gp[['x']][['layout']][['annotations']][[i]]$x,
+#         gp[['x']][['layout']][['annotations']][[i]]$y)
+#       )
+#     }
+#   }
+# }
+# 
+# # X Label
+# gp[['x']][['layout']][['annotations']][[1]]$y = -0.1
+# # Y Label
+# gp[['x']][['layout']][['annotations']][[2]]$x = -0.075
+# # Legend XY
+# gp[['x']][['layout']][['annotations']][[7]]$x = -0.025
+# gp[['x']][['layout']][['annotations']][[7]]$y = -0.225
+# gp
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
