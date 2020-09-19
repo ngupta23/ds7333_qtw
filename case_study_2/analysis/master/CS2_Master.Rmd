@@ -27,64 +27,101 @@ pacman::p_load(tidyverse, plotly, naniar)
 
 ```{r cars}
 data = readRDS(file='../../data/data.rds')
+dataRaw = readRDS(file='../../data/dataRaw.rds')
 ```
 
 ```{r}
-# TODO: Division Number is missing the first number of age
 head(data)
 ```
 
 ```{r}
-unique(data$Race)
-unique(data$Gender)
-unique(data %>% arrange(Age) %>%  select(Age) %>%  pluck(1)) 
-unique(data %>% arrange(Division) %>%  select(Division) %>%  pluck(1)) 
+message("Checking list of ages")
+sort(unique(data$Age))
+message("Checking list of Divisions")
+table(data$Division)
 ```
-
-* TODO: Some issues with Gender --> Does it matter?
 
 # Missing Values
 
-```{r}
-colnames(data)
-```
+Analyzing the rows with **NR* division
 
 ```{r}
 data %>% 
   dplyr::filter(Division == "NR")
 ```
+Analyzing the rows with null Age
 
 ```{r}
 data %>% 
-  dplyr::filter(Age == "NR")
+  dplyr::filter(is.na(Age))
 ```
+
+Analyzing the rows with null PiD
 
 ```{r}
 data %>% 
-  dplyr::filter(PiD == "NR")
+  dplyr::filter(is.na(PiD))
 ```
-
+Analyzing the rows with NA values in the Hometown, State, and country
 
 ```{r}
 data %>% 
-  dplyr::filter(Hometown == "NR")
+  dplyr::filter(is.na(Hometown) & is.na(HomeState) & is.na(HomeCountry))
 ```
-
+Analyzing the rows with NA values in the Home State and Country
 
 ```{r}
-# data = data %>%
-#   naniar::replace_with_na(
-#     replace = list(
-#       # Division = "NR", # No Results should not be converted to NA
-#       # Age="NR",  # does not have NR
-#       # PiD="NR", # does not have NR
-#       # TiD="NR", # does not have NR
-#       #Hometown="NR" #,
-#       # Country="NR" # Column missing
-#     )
-#   )
+data %>% 
+  dplyr::filter(is.na(HomeState) & is.na(HomeCountry))
+```
+Analyzing the rows with NA values in the Home Country
+
+```{r}
+data %>% 
+  dplyr::filter(is.na(HomeCountry))
+```
+Checking Home Countries
+
+```{r}
+sort(table(data$HomeCountry))
+```
+Some Home Countries have incorrenct naming
+```{r}
+table(dataRaw[data$HomeCountry == 'AE',]$Hometown)
+table(dataRaw[data$HomeCountry == 'AP',]$Hometown)
+table(dataRaw[data$HomeCountry == 'SK',]$Hometown)
+table(dataRaw[data$HomeCountry == 'VI',]$Hometown)
+table(dataRaw[data$HomeCountry == 'GBR',]$Hometown)
+table(dataRaw[data$HomeCountry == 'PR',]$Hometown)
+table(dataRaw[data$HomeCountry == 'ON',]$Hometown)
 ```
 
+Fixing incorrect naming when possible
+```{r}
+data = data %>%
+  mutate(HomeState = ifelse(HomeCountry =='VI','VA',HomeState)
+         ,HomeCountry = recode(HomeCountry
+                               , 'GBR' = 'GREAT BRITAIN'
+                               , 'PR' = 'PUERTO RICO'
+                               , 'ON' = 'CANADA' #Toronto
+                               , 'VI' = 'USA' #Virginia
+         ))
+```
+  
+  
+Converting Division with NR to null
+
+```{r}
+data = data %>%
+  naniar::replace_with_na(
+    replace = list(
+      Division = "NR"
+    )
+  )
+```
+
+
+Counting NA per each field
 
 ```{r}
 data %>% 
@@ -92,35 +129,25 @@ data %>%
   summarise_each(~ sum(is.na(.))) 
 ```
 
-```{r}
-naniar::gg_miss_upset(data)
-naniar::vis_miss(data, warn_large_data=F, sort_miss=T)
+Plotting NA records
+
+```{r fig.height=6, fig.width=7}
+naniar::gg_miss_upset(data,nsets = ncol(data))
+#naniar::vis_miss(data, warn_large_data=F, sort_miss=T)
 ```
 
-```{r}
-noresults = data %>% dplyr::filter(Division == "NR")
-dim(noresults)
-noresults
-```
+#Cleaning of dataset
+
+removing records with NA in TDivision, Age, PId, TID
 
 ```{r}
-noage = data %>% dplyr::filter(is.na(Age))
-dim(noage)
-noage
+removeRecs = with(data, is.na(Division) | is.na(Pace) | is.na(PiS) |
+                    is.na(PiD) | is.na(TiS) | is.na(TiD) | is.na(Age))
+
+message("Removing ", sum(removeRecs), " invalid Records")
+data = data[! removeRecs,]
 ```
 
-```{r}
-setdiff(noage, noresults)
-```
-
-* This seems to be an issue. It looks like this person is placed first in the division, but age is not set so she has been classified as W8099 and the time seems to be off from what would be expected from this age bracket.
-* TODO: Fix this
-
-```{r}
-# Remove no results
-data = data %>% 
-  dplyr::filter(Division != "NR")
-```
 
 # Basic EDA
 ```{r}
@@ -133,13 +160,13 @@ p = plotdata %>%
   geom_line() +
   geom_point()
 print(p)
-ggplotly(p, tooltip="text")
+#ggplotly(p, tooltip="text")
 
 p = plotdata %>% 
   ggplot(aes(x = year, y = count)) + 
   geom_bar(stat = "identity")
 print(p)
-ggplotly(p, tooltip="text")
+#ggplotly(p, tooltip="text")
 ```
 
 ```{r}
@@ -151,13 +178,13 @@ participants_year_div = data %>%
 ```{r fig.height=5, fig.width=8}
 participants_year_div %>% 
   ggplot(aes(x=Division, y=year, fill=num_participants)) +
-    geom_tile() + 
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-    scale_fill_gradient2(low = "green", mid='darkorange', high = "darkred", na.value = NA
-                         #,midpoint=mean(c(max(participants_year_div$num_participants),min(participants_year_div$num_participants)))) + 
-                         ,midpoint=quantile(participants_year_div$num_participants, 0.9)[[1]]) + 
-    geom_text(data = participants_year_div, label = participants_year_div$num_participants)
-  
+  geom_tile() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  scale_fill_gradient2(low = "green", mid='darkorange', high = "darkred", na.value = NA
+                       #,midpoint=mean(c(max(participants_year_div$num_participants),min(participants_year_div$num_participants)))) + 
+                       ,midpoint=quantile(participants_year_div$num_participants, 0.9)[[1]]) + 
+  geom_text(data = participants_year_div, label = participants_year_div$num_participants)
+
 ```
 
 ```{r}
@@ -170,7 +197,7 @@ p = plotdata %>%
   ggplot(aes(x = year, y = count, fill = Division)) + 
   geom_bar(stat = "identity", position = "stack") 
 print(p)
-ggplotly(p, tooltip="text")
+#ggplotly(p, tooltip="text")
 ```
 
 
@@ -179,7 +206,7 @@ ggplotly(p, tooltip="text")
 
 ## Age Brackets by Year
 
-```{r}
+```{r fig.height=7, fig.width=10}
 plotdata_by_year = data %>% 
   group_by(year) %>% 
   summarise(count_year = n())
@@ -191,10 +218,21 @@ plotdata_by_year_div = data %>%
 plotdata = plotdata_by_year %>% 
   plyr::join(plotdata_by_year_div, by = "year", type = "full") %>% 
   mutate(percent = round(count_year_div/count_year*100,1))
-  
+
 plotdata %>% 
-  ggplot(aes(x = year, y = percent, fill = Division)) + 
-  geom_bar(stat = "identity", position = "stack")
+  ggplot(aes(x = year, y = percent, fill =forcats::fct_rev( Division))) + 
+  geom_bar(stat = "identity", position = "stack") +
+  coord_flip() + 
+  labs(fill='Division') + 
+  geom_text(data=filter(plotdata,percent>2.5),aes(label = paste0(scales::percent(percent/100,accuracy=1)))
+            , position = ggplot2::position_stack(vjust=0.5)
+            , check_overlap = T, size=3,vjust=-0.5) + 
+  geom_text(data=filter(plotdata,percent>2.5),aes(label = Division)
+            , position = ggplot2::position_stack(vjust=0.5)
+            , check_overlap = T, size=2.5,vjust=1)  + 
+  scale_x_continuous(breaks = unique(plotdata$year))
+
+
 ```
 
 ## Race Times
@@ -219,7 +257,7 @@ p = data %>%
   geom_boxplot() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
   coord_flip()
-  
+
 print(p)
 #ggplotly(p, tooltip="text")
 ```
@@ -236,72 +274,4 @@ p = data %>%
 
 print(p)
 #ggplotly(p, tooltip="text")
-```
-
-```{r fig.height=6, fig.width=12}
-p = data %>% 
-  dplyr::filter(Division %in% c("W2529", "W3034", "W3539", "W4044")) %>% 
-  mutate_at("year", as.factor) %>% 
-  ggplot(aes(x=year, y=TimeMins, fill=year)) + 
-  geom_boxplot() +
-  facet_wrap(. ~ Division, ncol=2) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
-  coord_flip()
-print(p)
-
-# m <- list(
-#   l = 100,
-#   r = 50,
-#   b = 100,
-#   t = 50,
-#   pad = 4
-# )
-# gp = ggplotly(p, tooltip="text", width=800, height=600) %>%
-#   layout(
-#     autosize = F,
-#     margin=m,
-#     legend = list(orientation = "h", xanchor = "center", x = 0.5, y = -0.15)
-#     ) %>% 
-#   style(legendgroup = NULL)
-# 
-# # find the annotation you want to move
-# # Based on https://stackoverflow.com/questions/42763280/r-ggplot-and-plotly-axis-margin-wont-change
-# labels = c("year", "TimeMins")
-# for(i in seq_along(gp[['x']][['layout']][['annotations']])){
-#   for(label in labels){
-#     if (gp[['x']][['layout']][['annotations']][[i]]$text == label){
-#       print(paste(
-#         label, "Index: ", i, "X, Y: ",
-#         gp[['x']][['layout']][['annotations']][[i]]$x,
-#         gp[['x']][['layout']][['annotations']][[i]]$y)
-#       )
-#     }
-#   }
-# }
-# 
-# # X Label
-# gp[['x']][['layout']][['annotations']][[1]]$y = -0.1
-# # Y Label
-# gp[['x']][['layout']][['annotations']][[2]]$x = -0.075
-# # Legend XY
-# gp[['x']][['layout']][['annotations']][[7]]$x = -0.025
-# gp[['x']][['layout']][['annotations']][[7]]$y = -0.225
-# gp
-```
-
-
-```{r}
-
-```
-
-
-```{r}
-```
-
-
-```{r}
-```
-
-
-```{r}
 ```
