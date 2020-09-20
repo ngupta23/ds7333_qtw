@@ -136,11 +136,11 @@ naniar::gg_miss_upset(data,nsets = ncol(data))
 #naniar::vis_miss(data, warn_large_data=F, sort_miss=T)
 ```
 
-#Cleaning of dataset
+# Cleaning of dataset
 
 removing records with NA in TDivision, Age, PId, TID
 
-```{r}
+```{r} 
 removeRecs = with(data, is.na(Division) | is.na(Pace) | is.na(PiS) |
                     is.na(PiD) | is.na(TiS) | is.na(TiD) | is.na(Age))
 
@@ -150,7 +150,10 @@ data = data[! removeRecs,]
 
 
 # Basic EDA
-```{r}
+
+## Participants by Year
+
+```{r fig.height=4, fig.width=8}
 plotdata = data %>% 
   group_by(year) %>% 
   summarise(count=n()) 
@@ -163,11 +166,45 @@ print(p)
 #ggplotly(p, tooltip="text")
 
 p = plotdata %>% 
-  ggplot(aes(x = year, y = count)) + 
-  geom_bar(stat = "identity")
+  ggplot(aes(x = year, y = count, fill=as.factor(year))) + 
+  geom_bar(stat = "identity") + 
+  labs(fill='Year')
 print(p)
 #ggplotly(p, tooltip="text")
 ```
+
+
+
+```{r fig.height=4, fig.width=8}
+# Alternate colored by Division
+plotdata = data %>% 
+  group_by(year, Division) %>% 
+  summarise(count = n())
+
+p = plotdata %>% 
+  ggplot(aes(x = year, y = count, fill = Division)) + 
+  geom_bar(stat = "identity", position = "stack") 
+print(p)
+#ggplotly(p, tooltip="text")
+```
+
+## By Home (Out of Town)
+
+```{r fig.height=4, fig.width=8}
+closeStates = c("DC", "VA", "MD")
+
+data %>% 
+  dplyr::filter(!(HomeState %in% closeStates)) %>% 
+  group_by(year) %>% 
+  summarise(Count = n()) %>% 
+  ggplot(aes(x=year, y=Count, fill=as.factor(year))) +
+    labs(fill='Year') +
+    geom_bar(stat = "identity")
+```
+
+# Business Analysis
+
+## Age Brackets by Year
 
 ```{r}
 participants_year_div = data %>% 
@@ -186,25 +223,6 @@ participants_year_div %>%
   geom_text(data = participants_year_div, label = participants_year_div$num_participants)
 
 ```
-
-```{r}
-# Alternate colored by Division
-plotdata = data %>% 
-  group_by(year, Division) %>% 
-  summarise(count = n())
-
-p = plotdata %>% 
-  ggplot(aes(x = year, y = count, fill = Division)) + 
-  geom_bar(stat = "identity", position = "stack") 
-print(p)
-#ggplotly(p, tooltip="text")
-```
-
-
-
-# Business Analysis
-
-## Age Brackets by Year
 
 ```{r fig.height=7, fig.width=10}
 plotdata_by_year = data %>% 
