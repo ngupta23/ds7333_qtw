@@ -1,0 +1,296 @@
+---
+title: "Case Study 2"
+author: "Nikhil, Moro, Bhuvana"
+date: "`r Sys.time()`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 6
+    toc_float: yes
+  word_document:
+    toc: yes
+    toc_depth: '6'
+  github_document:
+    toc: yes
+    toc_depth: 6
+always_allow_html: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, plotly, naniar)
+```
+
+# reading Data from ETL
+
+
+```{r cars}
+data = readRDS(file='../../data/data.rds')
+dataRaw = readRDS(file='../../data/dataRaw.rds')
+```
+
+```{r}
+head(data)
+```
+
+```{r}
+message("Checking list of ages")
+sort(unique(data$Age))
+message("Checking list of Divisions")
+table(data$Division)
+```
+
+# Missing Values
+
+Analyzing the rows with **NR* division
+
+```{r}
+data %>% 
+  dplyr::filter(Division == "NR")
+```
+Analyzing the rows with null Age
+
+```{r}
+data %>% 
+  dplyr::filter(is.na(Age))
+```
+
+Analyzing the rows with null PiD
+
+```{r}
+data %>% 
+  dplyr::filter(is.na(PiD))
+```
+Analyzing the rows with NA values in the Hometown, State, and country
+
+```{r}
+data %>% 
+  dplyr::filter(is.na(Hometown) & is.na(HomeState) & is.na(HomeCountry))
+```
+Analyzing the rows with NA values in the Home State and Country
+
+```{r}
+data %>% 
+  dplyr::filter(is.na(HomeState) & is.na(HomeCountry))
+```
+Analyzing the rows with NA values in the Home Country
+
+```{r}
+data %>% 
+  dplyr::filter(is.na(HomeCountry))
+```
+Checking Home Countries
+
+```{r}
+sort(table(data$HomeCountry))
+```
+Some Home Countries have incorrenct naming
+```{r}
+table(dataRaw[data$HomeCountry == 'AE',]$Hometown)
+table(dataRaw[data$HomeCountry == 'AP',]$Hometown)
+table(dataRaw[data$HomeCountry == 'SK',]$Hometown)
+table(dataRaw[data$HomeCountry == 'VI',]$Hometown)
+table(dataRaw[data$HomeCountry == 'GBR',]$Hometown)
+table(dataRaw[data$HomeCountry == 'PR',]$Hometown)
+table(dataRaw[data$HomeCountry == 'ON',]$Hometown)
+```
+
+Fixing incorrect naming when possible
+```{r}
+data = data %>%
+  mutate(HomeState = ifelse(HomeCountry =='VI','VA',HomeState)
+         ,HomeCountry = recode(HomeCountry
+                               , 'GBR' = 'GREAT BRITAIN'
+                               , 'PR' = 'PUERTO RICO'
+                               , 'ON' = 'CANADA' #Toronto
+                               , 'VI' = 'USA' #Virginia
+         ))
+```
+  
+  
+Converting Division with NR to null
+
+```{r}
+data = data %>%
+  naniar::replace_with_na(
+    replace = list(
+      Division = "NR"
+    )
+  )
+```
+
+
+Counting NA per each field
+
+```{r}
+data %>% 
+  select_if(function(x) any(is.na(x))) %>% 
+  summarise_each(~ sum(is.na(.))) 
+```
+
+Plotting NA records
+
+```{r fig.height=6, fig.width=7}
+naniar::gg_miss_upset(data,nsets = 7)
+#naniar::vis_miss(data, warn_large_data=F, sort_miss=T)
+```
+
+# Cleaning of dataset
+
+removing records with NA in TDivision, Age, PId, TID
+
+```{r} 
+removeRecs = with(data, is.na(Division) | is.na(Pace) | is.na(PiS) |
+                    is.na(PiD) | is.na(TiS) | is.na(TiD) | is.na(Age))
+
+message("Removing ", sum(removeRecs), " invalid Records")
+data = data[! removeRecs,]
+```
+
+
+# Basic EDA
+
+## Participants by Year
+
+```{r fig.height=4, fig.width=8}
+plotdata = data %>% 
+  group_by(year) %>% 
+  summarise(count=n()) 
+
+p = plotdata %>% 
+  ggplot(aes(x=year, y=count)) +
+  geom_line() +
+  geom_point()
+print(p)
+#ggplotly(p, tooltip="text")
+
+p = plotdata %>% 
+  ggplot(aes(x = year, y = count)) + 
+  geom_bar(stat = "identity",fill='light blue') +
+  geom_text(aes(label=scales::comma(count)),vjust=-.8,size=3)+
+  labs(y='Count of Participants',x='Year') +
+  ggthemes::theme_pander()
+print(p)
+#ggplotly(p, tooltip="text")
+```
+
+
+
+## By Home (Out of Town)
+
+```{r fig.height=4, fig.width=8}
+closeStates = c("DC", "VA", "MD")
+
+data %>% 
+  dplyr::filter(!(HomeState %in% closeStates)) %>% 
+  group_by(year) %>% 
+  summarise(Count = n()) %>% 
+  ggplot(aes(x=year, y=Count)) +
+  geom_bar(stat = "identity",fill='light blue')  +
+  geom_text(aes(label=scales::comma(Count,1)),vjust=-.8,size=3)+
+  labs(y='Count of Participants',x='Year') +
+  ggthemes::theme_pander()
+```
+
+# Business Analysis
+
+## Age Brackets by Year
+
+```{r}
+participants_year_div = data %>% 
+  group_by(year, Division) %>% 
+  summarise(num_participants = n())
+```
+
+```{r fig.height=5, fig.width=8}
+participants_year_div %>% 
+  ggplot(aes(x=Division, y=year, fill=num_participants)) +
+  geom_tile() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  scale_fill_gradient2(low = "green", mid='darkorange', high = "darkred", na.value = NA
+                       #,midpoint=mean(c(max(participants_year_div$num_participants),min(participants_year_div$num_participants)))) + 
+                       ,midpoint=quantile(participants_year_div$num_participants, 0.9)[[1]]) + 
+  geom_text(data = participants_year_div, label = participants_year_div$num_participants) + 
+  labs(x='Division',y='Year',fill='Count of \nParticipants') +
+  ggthemes::theme_pander()
+```
+
+```{r fig.height=6, fig.width=10}
+plotdata_by_year = data %>% 
+  group_by(year) %>% 
+  summarise(count_year = n())
+
+plotdata_by_year_div = data %>% 
+  group_by(year, Division) %>% 
+  summarise(count_year_div = n())
+
+plotdata = plotdata_by_year %>% 
+  plyr::join(plotdata_by_year_div, by = "year", type = "full") %>% 
+  mutate(percent = round(count_year_div/count_year*100,1))
+
+plotdata %>% 
+  ggplot(aes(x = year, y = percent, fill =forcats::fct_rev( Division))) + 
+  geom_bar(stat = "identity", position = "stack") +
+  coord_flip() + 
+  labs(fill='Division',y='Percent',x='Year') + 
+  geom_text(data=filter(plotdata,percent>2.5),aes(label = paste0(scales::percent(percent/100,accuracy=1)))
+            , position = ggplot2::position_stack(vjust=0.5)
+            , check_overlap = T, size=3,vjust=-0.5) + 
+  geom_text(data=filter(plotdata,percent>2.5),aes(label = Division)
+            , position = ggplot2::position_stack(vjust=0.5)
+            , check_overlap = T, size=2.5,vjust=1)  + 
+  scale_x_continuous(breaks = unique(plotdata$year))  
+
+
+```
+
+## Race Times
+
+```{r fig.height=4, fig.width=8}
+p = data %>% 
+  mutate_at("year", as.factor) %>% 
+  ggplot(aes(x=year, y=TimeMins, fill=year)) +
+  geom_boxplot() + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  coord_flip() + 
+  labs(y="Time in Minutes",x="Year")  +
+  ggthemes::theme_pander() + 
+  theme(legend.position="none")
+print(p)
+#ggplotly(p, tooltip="text")
+```
+
+
+```{r fig.height=4, fig.width=8}
+p = data %>% 
+  # dplyr::filter(!(Division %in% c("W8099", "W7579"))) %>% 
+  mutate_at("year", as.factor) %>% 
+  ggplot(aes(x=Division, y=TimeMins, fill=Division)) + 
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  coord_flip()+
+  ggthemes::theme_pander() + 
+  labs(y="Time in Minutes",x="Division")  +
+  theme(legend.position="none")
+
+print(p)
+#ggplotly(p, tooltip="text")
+```
+
+```{r fig.height=12, fig.width=12}
+p = data %>% 
+  dplyr::filter(!(Division %in% c("W8099", "W7579", "W7074", "W6569"))) %>% 
+  mutate_at("year", as.factor) %>% 
+  ggplot(aes(x=year, y=TimeMins, fill=year)) + 
+  geom_boxplot() +
+  facet_wrap(. ~ Division, ncol=2) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  coord_flip()  +
+  ggthemes::theme_pander() + 
+  labs(y="Time in Minutes",x="Year")  +
+  theme(legend.position="none"
+        , strip.background = element_rect(fill='light grey'))
+
+print(p)
+```

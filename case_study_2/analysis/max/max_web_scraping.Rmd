@@ -1,0 +1,132 @@
+---
+title: "MaxCs2"
+author: "Max Moro"
+date: "9/9/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(hms)
+library(rvest)
+library(lubridate)
+library(foreach)
+library(stringr)
+library(iterators)
+
+years = c(1999:2012)
+division = 'Overall+Women' #'Overall+Men"
+section = '10M' 
+
+```
+
+# Functions
+
+```{r}
+getLink = function(year,division,section,page=1){
+  #this function just create the link with the query parameters 
+  paste0( 'http://www.cballtimeresults.org/performances'
+          ,'?utf8=%E2%9C%93&section=',section
+          ,'&year=',year,'&division=',division,'&page=', page)
+}
+
+getTable = function(year,division,section,page){
+  #this function reads the page and convert to a dataframe
+  
+  #get the link to the apge
+  link=getLink(year,division,section,page=page)
+  
+  #read the page, and grab to 'table' tag
+  t=read_html(link)  %>% 
+    html_nodes("table")  %>% 
+    html_table(fill=TRUE) 
+  
+  #get the table and add metadat for the query paramters
+  out = t[[1]] %>%
+    mutate(year=year, divisionTitle=division, section=section, page=page, link=link)
+}
+
+getTables  = function(years,division,section,useCachedWebData = FALSE){
+  library(progress)
+  library(doParallel)
+  library(doSNOW)
+  cl <- makeCluster(detectCores())
+  doSNOW::registerDoSNOW(cl)
+  #just a progress bar for the parallel loop
+  pb <- progress::progress_bar$new(total = length(years),format='[:bar] :percent :eta')
+  progress <- function(n) pb$tick()
+  
+  if(!useCachedWebData) {
+    dataRaw=NULL
+    
+    #initiate a parellel loop per each year
+    dataRaw = foreach(y=years
+                      ,.combine=rbind,.export=c('getTable','getLink')
+                      ,.options.snow = list(progress=progress)) %dopar%
+      {
+        library(foreach)
+        library(rvest)
+        library(dplyr)
+        isCompleted=FALSE
+        
+        #loop to parse all pages
+        dataRaw=foreach(p=c(1:1000),.combine=rbind) %do% 
+          if(!isCompleted) {
+            message('getting year:',y, ' page:',p,appendLF = F)
+            #get the table of the current page
+            table = getTable(year=y
+                             ,division=division
+                             ,section=section
+                             ,page=p)
+            message(' rows:',nrow(table))
+            isCompleted = nrow(table)==0 #if there is record, we are at the last page, no need to read further
+            return(table)
+          }
+        return(dataRaw)
+      }
+    stopCluster(cl)
+    #save the raw data
+    saveRDS(dataRaw,file='../../data/dataRaw.rds')
+  } else {
+    #read teh raw data
+    dataRaw= readRDS(file='../../data/dataRaw.rds')
+  }
+  #fix columns and content
+  data = dataRaw %>%
+    separate(col='Name',c('Name','Gender'),sep='[\\(\\)]',extra='drop',remove=TRUE) %>% #split name cols to name and gender
+    separate(col='PiS/TiS',c('PiS','TiS'),sep='\\/',extra='drop',remove=TRUE) %>% #split PiS/TiS cols
+    separate(col='PiD/TiD',c('PiD','TiD'),sep='\\/',extra='drop',remove=TRUE) %>% #split PiD/TiD cols
+    separate(col='Hometown',c('Hometown','Home State'),sep=',',extra='drop',remove=TRUE,fill='right') %>% #split Hometown and state
+    mutate(Race = trimws(substr(Race,5,100)) #gram race type race cols
+           ,DivisionCode =  trimws(substr(Division,1,1)) #grab division code from division col
+           ,DivisionNum =  trimws(substr(Division,3,100)) #grab division code from division col
+           #,Time = lubridate::hms(gsub('\\*\\*','',Time))
+           ,Time = lubridate::parse_date_time(gsub('\\*\\*','',Time), orders = c("HMS", "MS")) #convert time col to time format
+           ,TimeMins = second(Time)/60 + minute(Time)  + hour(Time)*60  #convert time to minus
+           #,Pace = lubridate::ms(Pace)
+           ,Pace = lubridate::parse_date_time(gsub('\\*\\*','',Pace), orders = c("HMS", "MS"))  #convert pace col to time format
+           ,PaceMins = second(Pace)/60 + minute(Pace)  + hour(Pace)*60   #convert pace time to minus
+           ,Age = as.numeric(Age) #convert age to numeric
+           ,PiS = as.numeric(PiS) #convert PiS to numeric
+           ,TiS = as.numeric(TiS) #convert TiS to numeric
+           ,PiD = as.numeric(PiD) #convert PiD to numeric
+           ,TiD = as.numeric(TiD) #convert TiD to numeric
+    )
+  return(list(dataRaw=dataRaw,data=data ))
+}
+```
+
+# Run ETL
+
+```{r}
+out=getTables(years=years,division = division,section=section,useCachedWebData = TRUE)
+data=out$data
+dataRaw=out$dataRaw
+if(F) saveRDS(data,file='../../data/data.rds')
+head(data)
+data %>%
+  group_by(year) %>%
+  summarize(rows = n())
+```
+
