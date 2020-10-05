@@ -1,0 +1,298 @@
+---
+title: "Max_CS3"
+author: "Nikhil, Moro, Bhuvana"
+date: "9/29/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(tidyverse)
+library(parallel)
+library(doParallel)
+library(randomForest)
+library(ranger)
+library(tictoc)
+```
+# Functions
+```{r}
+library(dplyr)
+library(ggraph)
+library(igraph)
+
+tree_func <- function(final_model, 
+                      tree_num) {
+  
+  # get tree by index
+  tree <- randomForest::getTree(final_model, 
+                                k = tree_num, 
+                                labelVar = TRUE) %>%
+    tibble::rownames_to_column() %>%
+    # make leaf split points to NA, so the 0s won't get plotted
+    mutate(`split point` = ifelse(is.na(prediction), `split point`, NA))
+  
+  # prepare data frame for graph
+  graph_frame <- data.frame(from = rep(tree$rowname, 2),
+                            to = c(tree$`left daughter`, tree$`right daughter`))
+  
+  # convert to graph and delete the last node that we don't want to plot
+  graph <- graph_from_data_frame(graph_frame) %>%
+    delete_vertices("0")
+  
+  # set node labels
+  V(graph)$node_label <- gsub("_", " ", as.character(tree$`split var`))
+  V(graph)$leaf_label <- as.character(tree$prediction)
+  V(graph)$split <- paste("<=",as.character(round(tree$`split point`, digits = 2)))
+  
+  # plot
+  plot <- ggraph(graph, 'dendrogram') + 
+    theme_bw() +
+    geom_edge_link() +
+    geom_node_point() +
+    geom_node_text(aes(label = node_label), na.rm = TRUE, repel = TRUE) +
+    geom_node_label(aes(label = split), vjust = 2.5, na.rm = TRUE, fill = "white") +
+    geom_node_label(aes(label = leaf_label, fill = leaf_label), na.rm = TRUE, 
+                    repel = TRUE, colour = "white", fontface = "bold", show.legend = FALSE) +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.background = element_blank(),
+          plot.background = element_rect(fill = "white"),
+          panel.border = element_blank(),
+          axis.line = element_blank(),
+          axis.text.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks = element_blank(),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          plot.title = element_text(size = 18))
+  
+  print(plot)
+}
+```
+
+# Data
+## Loading Data
+```{r}
+load('../../data/data.Rda')
+dataRaw  = emailDFrp 
+```
+
+## Parameters
+```{r}
+useParallel = T
+maxCores=8
+target = 'isSpam'
+predictors = names(dataRaw)[names(dataRaw) != target]
+message("Predictors: ",paste0(predictors,collapes = ' - '))
+data = dataRaw %>%
+  select_at(vars(c(target,predictors))) %>%
+  filter(complete.cases(.))
+
+message('\nOriginal rows:  ',nrow(dataRaw),'\nComplete Cases: ',nrow(data))
+```
+
+```{r}
+message("Ratio y: ", round(sum(data$isSpam=="T")/nrow(data),3))
+message("Records: ", nrow(data))
+```
+## Split Train and Holdout
+```{r}
+holdoutIndex <- createDataPartition(data[[target]], p = .2, list = F, times = 1)
+dataTrain = data[-holdoutIndex,]
+dataHoldout = data[holdoutIndex,]
+
+message("Train Ratio y: ", round(sum(dataTrain$isSpam=="T")/nrow(dataTrain),3))
+message("Train Records: ", nrow(dataTrain))
+
+message("Holdout Ratio y: ", round(sum(dataHoldout$isSpam=="T")/nrow(dataHoldout),3))
+message("Holdout Records: ", nrow(dataHoldout))
+
+```
+# Models
+
+## Parameters
+```{r}
+stats <- function (data, lev =  levels(data$obs), model = NULL)  {
+  trueCase = 'T'
+  falseCase = 'F'
+  cmY = caret::confusionMatrix(data$pred,data$obs,positive=trueCase,mode='everything')
+  cmN = caret::confusionMatrix(data$pred,data$obs,positive=falseCase,mode='everything')
+  tc = caret::twoClassSummary(data, lev = lev,model)
+  roc=pROC::roc(response = data$obs==trueCase, predictor = data[[trueCase]],percent=T)
+  recallW = as.numeric(((cmN$byClass['Recall'] * sum(data$obs==falseCase))
+                        +(cmY$byClass['Recall'] * sum(data$obs==trueCase)))
+                       /length(data$obs))
+  prevalence = sum(data$pred ==trueCase)/(nrow(data))
+  limit=pROC::coords(roc, x="best",input='thr', ret='all',best.method = 'closest.topleft',best.weights = c(5,prevalence),transpose=FALSE)
+  bestThreshold = limit$threshold
+  precisionW =  as.numeric(((cmN$byClass['Precision'] * sum(data$obs==falseCase))
+                            +(cmY$byClass['Precision'] * sum(data$obs==trueCase)))
+                           /length(data$obs))
+  AUC = as.numeric(pROC::auc(roc))/100
+  AUC_recallW = (AUC) * (recallW)
+  c(
+    cmY$overall
+    ,cmY$byClass
+    ,tc
+    ,AUC=AUC
+    ,recallW =  recallW
+    ,precisionW =  precisionW
+    ,AUC_recallW = AUC_recallW
+    ,bestThreshold=bestThreshold
+  )
+}
+
+
+##Seeds for paralleling processing
+set.seed(1701)
+numResamples = 10
+seeds <- vector(mode = "list", length = numResamples+1)
+for(i in 1:(numResamples)) seeds[[i]] <- sample.int(1000, 500)
+## For the last model:
+seeds[[numResamples+1]] <- sample.int(1000, 1)
+
+trControl <- trainControl(method = "boot" #boot - adaptive_boot"
+                          ,number =10
+                          ,classProbs=TRUE
+                          ,summaryFunction=stats
+                          ,seeds=seeds
+                          ,allowParallel = useParallel
+                          ,search='grid' #random, grid
+                          ,trim=T
+)
+
+```
+
+## RF  
+```{r}
+customRF <- list(type = "Classification",
+                 library = "randomForest",
+                 loop = NULL)
+
+customRF$parameters <- data.frame(parameter = c("mtry", "ntree","maxnodes","nodesize"),
+                                  class = rep("numeric", 4),
+                                  label = c("mtry", "ntree","maxnodes","nodesize"))
+
+customRF$grid <- function(x, y, len = NULL, search = "grid") {}
+
+customRF$fit <- function(x, y, wts, param, lev, last, weights, classProbs) {
+  randomForest(x, y
+               ,mtry = param$mtry
+               ,ntree=param$ntree
+               ,maxnodes=param$maxnodes
+               ,nodesize=param$nodesize
+  )
+}
+
+#Predict label
+customRF$predict <- function(modelFit, newdata, preProc = NULL, submodels = NULL)
+  predict(modelFit, newdata)
+
+#Predict prob
+customRF$prob <- function(modelFit, newdata, preProc = NULL, submodels = NULL)
+  predict(modelFit, newdata, type = "prob")
+
+customRF$sort <- function(x) x[order(x[,1]),]
+customRF$levels <- function(x) x$classes
+
+
+runRF = function(useSaved=T){
+  if(!useSaved){
+    set.seed(1701)
+    if(F){
+      cl <- makeCluster(detectCores())
+      registerDoParallel(cl)
+    }
+    
+    #https://www.rdocumentation.org/packages/randomForest/versions/4.6-14/topics/randomForest
+    #https://cran.r-project.org/web/packages/randomForest/randomForest.pdf
+    mtryDef = ceiling(sqrt(ncol(data)))
+    tuneGrid = expand.grid(.mtry = seq(floor(mtryDef/2),mtryDef*2,length.out = 5)
+                           ,.ntree = seq(200,1000,length.out = 5)
+                           ,.maxnodes = seq(5,10,length.out = 3)
+                           ,.nodesize = seq(2,15,length.out = 3)
+    )
+    
+    message('modeling')
+    formula = as.formula(paste(target,'~',paste0(predictors,collapse='+')))
+    print(Sys.time());tic()
+    model=NULL
+    modelRF <- caret::train(formula
+                            ,data = data.frame(dataTrain)
+                            ,method = customRF
+                            ,trControl = trControl
+                            ,tuneGrid=tuneGrid
+                            ,metric ="recallW" #F1, #AUC_recallW, Recall
+                            ,maximize=T
+                            ,na.action = na.omit
+                            
+    )
+    toc()
+    if(F) parallel::stopCluster(cl)
+    saveRDS(modelRF,'modelRF.rds')
+  } else { modelRF = readRDS('modelRF.rds')}
+  return(modelRF)
+}
+```
+
+## Ranger
+```{r}
+runRanger = function(useSaved=T){
+  if(!useSaved){
+    set.seed(1701)
+    
+    if(useParallel){
+      cl <- makeCluster(detectCores())
+      registerDoParallel(cl)
+    }
+    tuneGrid = expand.grid(.mtry = seq(floor(mtryDef/2),mtryDef*2,length.out = 5)
+                           ,.min.node.size	 = seq(2,50,length.out = 5)
+                           ,.splitrule='gini'
+    )
+    
+    message('modeling')
+    formula = as.formula(paste(target,'~',paste0(predictors,collapse='+')))
+    print(Sys.time());tic()
+    model=NULL
+    modelRanger <- caret::train(formula
+                                ,data = data.frame(dataTrain)
+                                ,method = "ranger"
+                                ,verbose=TRUE
+                                ,trControl = trControl
+                                ,tuneGrid = tuneGrid
+                                ,metric ="recallW" #F1, #AUC_recallW, Recall
+                                ,maximize=F
+                                ,na.action = na.omit
+                                
+    )
+    toc()
+    if(useParallel) parallel::stopCluster(cl)
+    saveRDS(model,'modelRanger.rds')
+  } else {modelRanger = loadRDS('modelRanger.rds')}
+  return(modelRanger)
+}
+```
+
+# Output
+```{r}
+useSaved=F
+```
+
+## RF
+```{r}
+modelRF = runRF(useSaved=useSaved)
+plot(modelRF)
+tr = randomForest::getTree(modelRF$finalModel,1,labelVar=T)
+tree_func(modelRF$finalModel,tree_num = 1)
+```
+
+## Ranger
+```{r}
+modelRanger = runRanger(useSaved=useSaved)
+plot(modelRF)
+tr = randomForest::getTree(modelRF$finalModel,1,labelVar=T)
+tree_func(modelRF$finalModel,tree_num = 1)
+
+```
+

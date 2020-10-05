@@ -1,0 +1,25 @@
+---
+title: "Export Data"
+author: "Nikhil Gupta"
+date: "9/28/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+load("../../data/data.Rda")
+emailDFrp %>% glimpse()
+```
+
+```{r}
+write.csv(emailDFrp, "../../data/data.csv", row.names = FALSE)
+```
