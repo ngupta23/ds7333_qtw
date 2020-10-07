@@ -12,6 +12,11 @@ Repository for DS7333 - Quantifying the World @ Southern Methodist University (F
 
 # Case Study 3: Spam Classification Deepdive using Decision Trees
 
-* Build a Spam Classifier using Decision Tree Models (scikit-learn)
+* Built a Spam Classifier using Decision Tree Models (scikit-learn)
 * Use of Custom Evaluation metrics and Bayesian Optimization
 * Evaluate model explainability by looking at the Decision Tree structure
+
+# Case Study 4: Predicting flu infections
+
+* Built a Time Series model to predict the extent of flu outbreak in the US
+* Training Data used from [FluNet](https://www.who.int/influenza/gisrs_laboratory/flunet/en/)
