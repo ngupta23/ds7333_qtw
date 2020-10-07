@@ -24,7 +24,7 @@ library(tswgewrapped)
 ```
 
 ```{r}
-data = read.csv("../../data/FluNetInteractiveReport.csv", skip = 2)
+data = read.csv("../../data/FluNetInteractiveReport_2007_2019.csv", skip = 2)
 data %>% glimpse()
 ```
 
@@ -81,7 +81,7 @@ Lets remove that to try to make the data stationary
 
 ```{r}
 flu_s52 = tswge::artrans.wge(log_flu, phi.tr = c(rep(0,51), 1))
-px = plotts.sample.wge(flu_s52, lag.max = 125)
+px = plotts.sample.wge(flu_s52, lag.max = 125, trunc = 100)
 ```
 
 ```{r}
@@ -91,20 +91,20 @@ px = plotts.sample.wge(flu_s52_d1, lag.max = 125)
 
 
 ```{r}
-aicbic.tables = tswgewrapped::aicbic(flu_s52_d1, 0:5, 0:5, silent = TRUE, merge = TRUE)
+aicbic.tables = tswgewrapped::aicbic(flu_s52_d1, 0:8, 0:8, silent = TRUE, merge = TRUE)
 aicbic.tables
 ```
 
 ```{r}
-aicbic.tables = tswgewrapped::aicbic(flu_s52, 0:5, 0:5, silent = TRUE, merge = TRUE)
+aicbic.tables = tswgewrapped::aicbic(flu_s52, 0:8, 0:8, silent = TRUE, merge = TRUE)
 aicbic.tables
 ```
 
-ARMA(2,0) seems to be on the top of the list using both AIC and BIC for flu_s52_d1. We will use this going forward
-ARMA(3,1) seems to be on the top of the list using both AIC and BIC for est_s52. We will use this going forward
+ARMA(0,6) seems to be on the top of the list using both AIC and BIC for flu_s52_d1. We will use this going forward
+ARMA(3,1) seems to be on the top of the list using BIC for est_s52. We will use this going forward
 
 ```{r}
-est_s52_d1 = tswge::est.arma.wge(flu_s52_d1, p = 2, q = 0)
+est_s52_d1 = tswge::est.arma.wge(flu_s52_d1, p = 0, q = 6)
 est_s52    = tswge::est.arma.wge(flu_s52, p = 3, q = 1)
 ```
 
