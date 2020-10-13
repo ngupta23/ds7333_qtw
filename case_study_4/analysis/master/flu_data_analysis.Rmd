@@ -1,0 +1,193 @@
+---
+title: "Flu Data Analysis"
+author: "Nikhil Gupta"
+date: "`r Sys.time()`"
+always_allow_html: yes
+output:
+  github_document:
+    toc: true
+    toc_depth: 6
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(tswge)
+library(tswgewrapped) #https://github.com/josephsdavid/tswgewrapped
+```
+
+```{r}
+data = read.csv("../../data/FluNetInteractiveReport_2007_2019.csv", skip = 2) %>%
+  filter(! Year %in% c(2007,2008,2009))
+data %>% glimpse()
+```
+
+# Response Variable
+
+```{r}
+flu = data$ALL_INF
+```
+
+# Checking for Mean and Variance grouping by year 
+```{r}
+ggplot2::ggplot(data=data,aes(x=Week,y=log(ALL_INF),color=(Year))) +
+  geom_point()+
+  scale_color_gradient(breaks=unique(data$Year))
+
+
+```
+
+```{r}
+px = plotts.sample.wge(flu, lag.max = 125, trunc = 150)
+```
+
+It may be worthwhile to take the log to smooth out the peaks
+
+```{r}
+log_flu = log(flu)
+```
+
+# Modeling
+
+## Stationarity
+
+```{r}
+tswgewrapped::check_stationarity(log_flu, ylab = 'Flu Infections (log)', title = 'Flu Infections over Time in US')
+```
+
+
+**Condition 1: Constant Mean**
+
+The mean does not appear to be constant over time. Therefore, the assumption of constant mean appears to be violated.
+
+**Condition 2: Constant Variance**
+
+Hard to say with just one realization. But if we superimpose year over year, there may seem to be some periods (especially during peaks) where the variance might be higher than the non-peak periods. Therefore, the assumption of constant variance may be violated.
+
+**Condition 3: Constant Autocorrelation**
+
+The ACF of the first and second half of the realization appear to exhibit similar behavior. Therefore, the assumption of constant autocorrelation does not appear to be violated.
+
+**Conclusion**
+
+Given the above analysis, there does appear to be sufficient evidence to suggest that the process generating the realization is not stationary. We will continue the ananlysis assuming the process generating the realization is not stationary.
+
+## Seasonal ARIMA Model
+
+### Model ID
+
+There appears to be a seasonality of 52 weeks in the data (can be seen from the peak at roughly 0.02 in the Parzen Window and from the periodicity in the ACF plots as well).
+
+There also seems to be a slight upward trend in the data which may be removed by differencing
+
+Lets remove that to try to make the data stationary
+
+```{r}
+flu_s52 = tswge::artrans.wge(log_flu, phi.tr = c(rep(0,51), 1))
+px = plotts.sample.wge(flu_s52, lag.max = 125, trunc = 100)
+```
+
+```{r}
+flu_s52_d1 = tswge::artrans.wge(flu_s52, phi.tr = 1)
+px = plotts.sample.wge(flu_s52_d1, lag.max = 125)
+```
+
+
+```{r}
+aicbic.tables = tswgewrapped::aicbic(flu_s52_d1, 0:8, 0:8, silent = TRUE, merge = TRUE)
+aicbic.tables
+```
+
+```{r}
+aicbic.tables = tswgewrapped::aicbic(flu_s52, 0:8, 0:8, silent = TRUE, merge = TRUE)
+aicbic.tables
+```
+
+ARMA(0,6) seems to be on the top of the list using both AIC and BIC for flu_s52_d1. We will use this going forward
+ARMA(3,1) seems to be on the top of the list using BIC for est_s52. We will use this going forward
+
+```{r}
+est_s52_d1 = tswge::est.arma.wge(flu_s52_d1, p = 0, q = 6)
+est_s52    = tswge::est.arma.wge(flu_s52, p = 3, q = 1)
+```
+
+### Model Fit
+
+```{r}
+# setup object with unitvariate model
+models = list(
+  "ARUMA(2,1,0) s=52" = list(phi = est_s52_d1$phi, theta = est_s52_d1$theta, s=52, d=1, vara = est_s52_d1$avar, res = est_s52_d1$res, sliding_ase = TRUE),
+  "ARUMA(3,0,1) s=52" = list(phi = est_s52$phi, theta = est_s52$theta, s=52, d=0, vara = est_s52$avar, res = est_s52$res, sliding_ase = TRUE)
+)
+```
+
+```{r}
+log_flu = data.frame(log_flu)
+head(log_flu)
+```
+
+```{r}
+var_interest = 'log_flu'
+n.ahead = 52
+batch_size = 208
+```
+
+```{r}
+mdl_compare_uni = tswgewrapped::ModelCompareUnivariate$new(
+  data = log_flu$log_flu,
+  var_interest = var_interest,
+  mdl_list = models,
+  n.ahead = n.ahead,
+  batch_size = batch_size
+)
+```
+
+#### Evaluation of the Residuals
+
+The residuals appear to be consisent with white noise. As secondary evaluation, the Ljung-Box test does not reject the null hypothesis that residuals are not white noise.
+
+```{r}
+tbl = mdl_compare_uni$evaluate_residuals()
+```
+
+#### Model Characterisics
+
+
+```{r fig.height=6}
+# mdl_compare_uni$plot_multiple_realizations()
+```
+
+```{r, message=FALSE, warning=FALSE, fig.width = 8}
+# show sliding window forecasts
+tbl = mdl_compare_uni$plot_batch_forecasts(only_sliding = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE, fig.width = 8}
+# show ASE over time (windows)
+tbl = mdl_compare_uni$plot_batch_ases(only_sliding = TRUE)
+```
+
+```{r}
+tbl <- mdl_compare_uni$plot_boxplot_ases()
+```
+
+```{r}
+p = mdl_compare_uni$plot_simple_forecasts()
+```
+
+## Conclusion
+
+In conclusion, it seems that the Seasonal ARIMA model without differencing seems to be performing better in general.
+The trend is not appreciable in the logged data to warrant differencing (adding the Integrated term in the model).
+
+
+```{r}
+```
+
