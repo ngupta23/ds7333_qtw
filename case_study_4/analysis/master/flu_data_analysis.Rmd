@@ -20,7 +20,12 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(tidyverse)
 library(tswge)
-library(tswgewrapped) #https://github.com/josephsdavid/tswgewrapped
+library(tseries)
+
+library(tswgewrapped) 
+#https://github.com/josephsdavid/tswgewrapped
+#https://josephsdavid.github.io/tswgewrapped/index.html
+
 ```
 
 ```{r}
@@ -39,9 +44,29 @@ flu = data$ALL_INF
 ```{r}
 ggplot2::ggplot(data=data,aes(x=Week,y=log(ALL_INF),color=(Year))) +
   geom_point()+
+  #scale_color_brewer('blues')
   scale_color_gradient(breaks=unique(data$Year))
 
 
+
+```
+## Dickey-Fuller Test
+
+Ho: The model has a root of +1 (nonstationary).
+Ha: The model does not have a root of +1 (stationary).
+
+```{r}
+tseries::adf.test(log(data$ALL_INF)) #k=52
+```
+## Running Avg
+```{r}
+library(zoo)
+
+ggplot2::ggplot(data=data,aes(x=as.Date(SDATE)
+                              ,y=zoo::rollmean(log(ALL_INF),52,fill=NA,align='right')
+                              ,color='Rolling Mean')) +
+  geom_point()+
+  geom_point(aes(y=log(ALL_INF),color='Actual'))
 ```
 
 ```{r}
@@ -101,12 +126,12 @@ px = plotts.sample.wge(flu_s52_d1, lag.max = 125)
 
 
 ```{r}
-aicbic.tables = tswgewrapped::aicbic(flu_s52_d1, 0:8, 0:8, silent = TRUE, merge = TRUE)
-aicbic.tables
+aicbic.tables_d1 = tswgewrapped::aicbic(flu_s52_d1, p=0:8, q=0:8, silent = TRUE, merge = TRUE)
+aicbic.tables_d1
 ```
 
 ```{r}
-aicbic.tables = tswgewrapped::aicbic(flu_s52, 0:8, 0:8, silent = TRUE, merge = TRUE)
+aicbic.tables = tswgewrapped::aicbic(flu_s52, p=0:8,q= 0:8, silent = TRUE, merge = TRUE)
 aicbic.tables
 ```
 
@@ -114,18 +139,34 @@ ARMA(0,6) seems to be on the top of the list using both AIC and BIC for flu_s52_
 ARMA(3,1) seems to be on the top of the list using BIC for est_s52. We will use this going forward
 
 ```{r}
-est_s52_d1 = tswge::est.arma.wge(flu_s52_d1, p = 0, q = 6)
-est_s52    = tswge::est.arma.wge(flu_s52, p = 3, q = 1)
+est_s52_d1 = tswge::est.arma.wge(flu_s52_d1, p = aicbic.tables_d1$p[1], q = aicbic.tables_d1$q[1])
+est_s52    = tswge::est.arma.wge(flu_s52, p = aicbic.tables$p[1], q = aicbic.tables$q[1])
 ```
 
 ### Model Fit
 
 ```{r}
+#Max: automatically build the text
 # setup object with unitvariate model
-models = list(
-  "ARUMA(2,1,0) s=52" = list(phi = est_s52_d1$phi, theta = est_s52_d1$theta, s=52, d=1, vara = est_s52_d1$avar, res = est_s52_d1$res, sliding_ase = TRUE),
-  "ARUMA(3,0,1) s=52" = list(phi = est_s52$phi, theta = est_s52$theta, s=52, d=0, vara = est_s52$avar, res = est_s52$res, sliding_ase = TRUE)
-)
+getModel = function(est,s,d,sliding_ase=TRUE){
+  t=list('unnamed' = 
+         list(phi = est$phi, theta = est$theta, s=s, d=d, vara = est$avar, res = est$res, sliding_ase = TRUE))
+  p = length(est$phi)
+  if(p==1 & est$phi[1] ==0) p=0
+  q = length(est$theta)
+  if(q==1 & est$theta[1] ==0) q=0
+  names(t)[1]=paste0("ARUMA(",p,",",d,",",q,")s",s)
+  
+  return(t)
+}
+
+models = c(getModel(est_s52_d1,s=52,d=1)
+              ,getModel(est_s52,s=52,d=0)
+              )
+# models = list(
+#   "ARUMA(2,1,0) s=52" = list(phi = est_s52_d1$phi, theta = est_s52_d1$theta, s=52, d=1, vara = est_s52_d1$avar, res = est_s52_d1$res, sliding_ase = TRUE),
+#   "ARUMA(3,0,1) s=52" = list(phi = est_s52$phi, theta = est_s52$theta, s=52, d=0, vara = est_s52$avar, res = est_s52$res, sliding_ase = TRUE)
+# )
 ```
 
 ```{r}
@@ -160,14 +201,30 @@ tbl = mdl_compare_uni$evaluate_residuals()
 #### Model Characterisics
 
 
-```{r fig.height=6}
-# mdl_compare_uni$plot_multiple_realizations()
-```
 
 ```{r, message=FALSE, warning=FALSE, fig.width = 8}
 # show sliding window forecasts
 tbl = mdl_compare_uni$plot_batch_forecasts(only_sliding = TRUE)
 ```
+
+
+```{r fig.height=6}
+dataReal= filter(tbl$forecasts,Model == 'Realization')
+dataModels= filter(tbl$forecasts,Model != 'Realization')
+
+p = ggplot2::ggplot(data=dataModels, aes(x=Time)) +
+  geom_ribbon(aes(ymin=ll,ymax=ul,fill=Model),alpha=.2)+
+  geom_line(aes(y=f,color=Model),size=.8) +
+  geom_line(data=dataReal,aes(y=f),size=1.2,color='#444444',linetype=3) +
+  ggthemes::theme_pander() +
+  labs(x='Time',y='Value') +
+  ggplot2::theme(
+    legend.position = 'top'
+    
+  )
+p
+```
+
 
 ```{r, message=FALSE, warning=FALSE, fig.width = 8}
 # show ASE over time (windows)
@@ -179,7 +236,24 @@ tbl <- mdl_compare_uni$plot_boxplot_ases()
 ```
 
 ```{r}
-p = mdl_compare_uni$plot_simple_forecasts()
+fcstPlot = mdl_compare_uni$plot_simple_forecasts()
+```
+
+```{r fig.height=6}
+dataReal= filter(fcstPlot$plot_data,Model == 'Actual')
+dataModels= filter(fcstPlot$plot_data,Model != 'Actual')
+
+p = ggplot2::ggplot(data=dataModels, aes(x=Time)) +
+  geom_ribbon(aes(ymin=ll,ymax=ul,fill=Model),alpha=.2)+
+  geom_line(aes(y=f,color=Model),size=.8) +
+  geom_line(data=dataReal,aes(y=f),size=.2,color='#444444',linetype=1) +
+  ggthemes::theme_pander() +
+  labs(x='Time',y='Value') +
+  ggplot2::theme(
+    legend.position = 'top'
+    
+  )
+p
 ```
 
 ## Conclusion
