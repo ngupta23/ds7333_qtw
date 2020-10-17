@@ -1,12 +1,11 @@
 Flu Data Analysis
 ================
 Nikhil Gupta
-2020-10-15 17:59:17
+2020-10-17 09:18:40
 
 -   [Response Variable](#response-variable)
 -   [Checking for Mean and Variance grouping by
     year](#checking-for-mean-and-variance-grouping-by-year)
-    -   [Running Avg](#running-avg)
 -   [Modeling](#modeling)
     -   [Stationarity](#stationarity)
     -   [Seasonal ARIMA Model](#seasonal-arima-model)
@@ -41,8 +40,7 @@ Nikhil Gupta
     #https://github.com/josephsdavid/tswgewrapped
     #https://josephsdavid.github.io/tswgewrapped/index.html
 
-    data = read.csv("../../data/FluNetInteractiveReport_2007_2019.csv", skip = 2) %>%
-      filter(! Year %in% c(2007,2008,2009))
+    data = read.csv("../../data/FluNetInteractiveReport_2010_2019.csv") 
     data %>% glimpse()
 
     ## Rows: 521
@@ -89,20 +87,30 @@ Checking for Mean and Variance grouping by year
 Ho: The model has a root of +1 (nonstationary). Ha: The model does not
 have a root of +1 (stationary).
 
-    tseries::adf.test(log(data$ALL_INF)) #k=52
+    #https://stats.stackexchange.com/questions/225087/seasonal-data-deemed-stationary-by-adf-and-kpss-tests
+    noSeas = tswge::artrans.wge(log(data$ALL_INF), phi.tr = c(rep(0,51), 1))
 
-    ## Warning in tseries::adf.test(log(data$ALL_INF)): p-value smaller than printed p-
-    ## value
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
+
+    tseries::adf.test(noSeas)
+
+    ## Warning in tseries::adf.test(noSeas): p-value smaller than printed p-value
 
     ## 
     ##  Augmented Dickey-Fuller Test
     ## 
-    ## data:  log(data$ALL_INF)
-    ## Dickey-Fuller = -7.8166, Lag order = 8, p-value = 0.01
+    ## data:  noSeas
+    ## Dickey-Fuller = -4.7929, Lag order = 7, p-value = 0.01
     ## alternative hypothesis: stationary
 
-Running Avg
------------
+    p=tswge::plotts.sample.wge(log(data$ALL_INF),lag.max = 100,trunc = 100)
+
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-5-2.png)<!-- -->
+
+    p=tswge::plotts.sample.wge(noSeas,lag.max = 100,trunc = 100)
+
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-5-3.png)<!-- -->
+\#\# Running Avg
 
     library(zoo)
 
@@ -122,10 +130,6 @@ Running Avg
     ## Warning: Removed 51 rows containing missing values (geom_point).
 
 ![](flu_data_analysis_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
-
-    px = plotts.sample.wge(flu, lag.max = 125, trunc = 150)
-
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-7-1.png)<!-- -->
 
 It may be worthwhile to take the log to smooth out the peaks
 
@@ -149,7 +153,7 @@ Stationarity
     ## This warning is displayed once every 8 hours.
     ## Call `lifecycle::last_warnings()` to see where this warning was generated.
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-9-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
 
     ## [1] TRUE
 
@@ -194,19 +198,19 @@ Lets remove that to try to make the data stationary
 
     flu_s52 = tswge::artrans.wge(log_flu, phi.tr = c(rep(0,51), 1))
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-9-1.png)<!-- -->
 
     px = plotts.sample.wge(flu_s52, lag.max = 125, trunc = 100)
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-10-2.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-9-2.png)<!-- -->
 
     flu_s52_d1 = tswge::artrans.wge(flu_s52, phi.tr = 1)
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
 
     px = plotts.sample.wge(flu_s52_d1, lag.max = 125)
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-11-2.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-10-2.png)<!-- -->
 
     aicbic.tables_d1 = tswgewrapped::aicbic(flu_s52_d1, p=0:8, q=0:8, silent = TRUE, merge = TRUE)
     aicbic.tables_d1
@@ -324,14 +328,14 @@ residuals are not white noise.
     ## 
     ## Evaluating residuals for model: 'ARUMA(7,1,2)s52'
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-19-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-18-1.png)<!-- -->
 
     ## None of the 'ljung_box' tests rejected the null hypothesis that the data is consistent with white noise at an significance level of  0.05  
     ## 
     ## 
     ## Evaluating residuals for model: 'ARUMA(6,0,0)s52'
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-19-2.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-18-2.png)<!-- -->
 
     ## None of the 'ljung_box' tests rejected the null hypothesis that the data is consistent with white noise at an significance level of  0.05
 
@@ -340,8 +344,9 @@ residuals are not white noise.
     # show sliding window forecasts
     tbl = mdl_compare_uni$plot_batch_forecasts(only_sliding = TRUE)
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->![](flu_data_analysis_files/figure-gfm/unnamed-chunk-20-2.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-19-1.png)<!-- -->![](flu_data_analysis_files/figure-gfm/unnamed-chunk-19-2.png)<!-- -->
 
+    #add windows sections
     dataReal= filter(tbl$forecasts,Model == 'Realization')
     dataModels= filter(tbl$forecasts,Model != 'Realization')
 
@@ -359,20 +364,20 @@ residuals are not white noise.
 
     ## Warning: Removed 314 row(s) containing missing values (geom_path).
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-21-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->
 
     # show ASE over time (windows)
     tbl = mdl_compare_uni$plot_batch_ases(only_sliding = TRUE)
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-21-1.png)<!-- -->
 
     tbl <- mdl_compare_uni$plot_boxplot_ases()
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->
 
     fcstPlot = mdl_compare_uni$plot_simple_forecasts()
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-24-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
 
     dataReal= filter(fcstPlot$plot_data,Model == 'Actual')
     dataModels= filter(fcstPlot$plot_data,Model != 'Actual')
@@ -389,7 +394,7 @@ residuals are not white noise.
       )
     p
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-24-1.png)<!-- -->
 
 Conclusion
 ----------

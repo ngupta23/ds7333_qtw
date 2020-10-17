@@ -29,10 +29,10 @@ library(tswgewrapped)
 ```
 
 ```{r}
-data = read.csv("../../data/FluNetInteractiveReport_2007_2019.csv", skip = 2) %>%
-  filter(! Year %in% c(2007,2008,2009))
+data = read.csv("../../data/FluNetInteractiveReport_2010_2019.csv") 
 data %>% glimpse()
 ```
+
 
 # Response Variable
 
@@ -42,6 +42,7 @@ flu = data$ALL_INF
 
 # Checking for Mean and Variance grouping by year 
 ```{r}
+
 ggplot2::ggplot(data=data,aes(x=Week,y=log(ALL_INF),color=(Year))) +
   geom_point()+
   #scale_color_brewer('blues')
@@ -56,7 +57,11 @@ Ho: The model has a root of +1 (nonstationary).
 Ha: The model does not have a root of +1 (stationary).
 
 ```{r}
-tseries::adf.test(log(data$ALL_INF)) #k=52
+#https://stats.stackexchange.com/questions/225087/seasonal-data-deemed-stationary-by-adf-and-kpss-tests
+noSeas = tswge::artrans.wge(log(data$ALL_INF), phi.tr = c(rep(0,51), 1))
+tseries::adf.test(noSeas)
+p=tswge::plotts.sample.wge(log(data$ALL_INF),lag.max = 100,trunc = 100)
+p=tswge::plotts.sample.wge(noSeas,lag.max = 100,trunc = 100)
 ```
 ## Running Avg
 ```{r}
@@ -69,9 +74,7 @@ ggplot2::ggplot(data=data,aes(x=as.Date(SDATE)
   geom_point(aes(y=log(ALL_INF),color='Actual'))
 ```
 
-```{r}
-px = plotts.sample.wge(flu, lag.max = 125, trunc = 150)
-```
+
 
 It may be worthwhile to take the log to smooth out the peaks
 
@@ -209,6 +212,7 @@ tbl = mdl_compare_uni$plot_batch_forecasts(only_sliding = TRUE)
 
 
 ```{r fig.height=6}
+#add windows sections
 dataReal= filter(tbl$forecasts,Model == 'Realization')
 dataModels= filter(tbl$forecasts,Model != 'Realization')
 
