@@ -19,9 +19,10 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(tidyverse)
+library(scales)
 library(tswge)
 library(tseries)
-
+library(lubridate)
 library(tswgewrapped) 
 #https://github.com/josephsdavid/tswgewrapped
 #https://josephsdavid.github.io/tswgewrapped/index.html
@@ -29,10 +30,12 @@ library(tswgewrapped)
 ```
 
 ```{r}
-data = read.csv("../../data/FluNetInteractiveReport_2010_2019.csv") 
+data = read.csv("../../data/FluNetInteractiveReport_2010_2019.csv")  %>%
+  rowid_to_column() %>%
+  mutate(SDATE = as.Date(SDATE)
+         ,EDATE = as.Date(EDATE))
 data %>% glimpse()
 ```
-
 
 # Response Variable
 
@@ -40,13 +43,42 @@ data %>% glimpse()
 flu = data$ALL_INF
 ```
 
+
+## checking for nulls
+```{r}
+message("Any null? ",any(is.na(flu)))
+summary(flu)
+plot(density(flu))
+plot(density(log(flu)))
+```
+
+## Simple representation 
+
+
 # Checking for Mean and Variance grouping by year 
+
+## Simple representation 
+```{r}
+ggplot2::ggplot(data=data,aes(x=SDATE,y=log(ALL_INF))) +
+  geom_line() +
+  scale_x_date(date_breaks = 'year',labels=year,minor_breaks = NULL)+
+  ggthemes::theme_pander() +
+  labs(x='Date',y='Num Cases (Log based)')   
+
+
+
+```
+
+
+## Overlapping years
 ```{r}
 
-ggplot2::ggplot(data=data,aes(x=Week,y=log(ALL_INF),color=(Year))) +
+ggplot2::ggplot(data=data,aes(x=Week,y=log(ALL_INF),color=Year)) +
   geom_point()+
   #scale_color_brewer('blues')
-  scale_color_gradient(breaks=unique(data$Year))
+  scale_color_gradient(breaks=unique(data$Year)) +
+  ggthemes::theme_pander() +
+  labs(x='Week Number',y='Num Cases (Log based)',color='Year')   
 
 
 
@@ -59,6 +91,12 @@ Ha: The model does not have a root of +1 (stationary).
 ```{r}
 #https://stats.stackexchange.com/questions/225087/seasonal-data-deemed-stationary-by-adf-and-kpss-tests
 noSeas = tswge::artrans.wge(log(data$ALL_INF), phi.tr = c(rep(0,51), 1))
+ggplot2::qplot(y=log(data$ALL_INF),x=1:nrow(data),geom='line',main='Influenza Cases (Log)'
+               ,ylim=c(-3,11),xlab='Week ID',ylab="Influenza Cases (Log)") + 
+  ggthemes::theme_pander()
+ggplot2::qplot(y=noSeas,x=1:length(noSeas),geom='line',main='Non-Seasonal Influenza Cases (Log)'
+               ,ylim=c(-3,11),xlab='Week ID',ylab="Non-Seasonal Influenza Cases (Log)") + 
+  ggthemes::theme_pander() 
 tseries::adf.test(noSeas)
 p=tswge::plotts.sample.wge(log(data$ALL_INF),lag.max = 100,trunc = 100)
 p=tswge::plotts.sample.wge(noSeas,lag.max = 100,trunc = 100)
@@ -87,7 +125,7 @@ log_flu = log(flu)
 ## Stationarity
 
 ```{r}
-tswgewrapped::check_stationarity(log_flu, ylab = 'Flu Infections (log)', title = 'Flu Infections over Time in US')
+tswgewrapped::check_stationarity(noSeas, ylab = 'Flu Infections (log)', title = 'Flu Infections over Time in US')
 ```
 
 
@@ -128,6 +166,7 @@ px = plotts.sample.wge(flu_s52_d1, lag.max = 125)
 ```
 
 
+
 ```{r}
 aicbic.tables_d1 = tswgewrapped::aicbic(flu_s52_d1, p=0:8, q=0:8, silent = TRUE, merge = TRUE)
 aicbic.tables_d1
@@ -142,8 +181,24 @@ ARMA(0,6) seems to be on the top of the list using both AIC and BIC for flu_s52_
 ARMA(3,1) seems to be on the top of the list using BIC for est_s52. We will use this going forward
 
 ```{r}
+message("Model with differnce term")
 est_s52_d1 = tswge::est.arma.wge(flu_s52_d1, p = aicbic.tables_d1$p[1], q = aicbic.tables_d1$q[1])
+message("   Theta terms:")
+est_s52_d1$theta
+message("   Variance of noise:")
+est_s52_d1$avar
+message("\nModel without differnce term")
 est_s52    = tswge::est.arma.wge(flu_s52, p = aicbic.tables$p[1], q = aicbic.tables$q[1])
+message("   Variance of noise:")
+est_s52$avar
+
+```
+
+#### Theta for the d1 model
+
+```{r}
+
+
 ```
 
 ### Model Fit
@@ -158,7 +213,7 @@ getModel = function(est,s,d,sliding_ase=TRUE){
   if(p==1 & est$phi[1] ==0) p=0
   q = length(est$theta)
   if(q==1 & est$theta[1] ==0) q=0
-  names(t)[1]=paste0("ARUMA(",p,",",d,",",q,")s",s)
+  names(t)[1]=paste0("ARIMA(",p,",",d,",",q,")s",s)
   
   return(t)
 }
@@ -166,10 +221,6 @@ getModel = function(est,s,d,sliding_ase=TRUE){
 models = c(getModel(est_s52_d1,s=52,d=1)
               ,getModel(est_s52,s=52,d=0)
               )
-# models = list(
-#   "ARUMA(2,1,0) s=52" = list(phi = est_s52_d1$phi, theta = est_s52_d1$theta, s=52, d=1, vara = est_s52_d1$avar, res = est_s52_d1$res, sliding_ase = TRUE),
-#   "ARUMA(3,0,1) s=52" = list(phi = est_s52$phi, theta = est_s52$theta, s=52, d=0, vara = est_s52$avar, res = est_s52$res, sliding_ase = TRUE)
-# )
 ```
 
 ```{r}
@@ -179,7 +230,7 @@ head(log_flu)
 
 ```{r}
 var_interest = 'log_flu'
-n.ahead = 52
+n.ahead = 52*2
 batch_size = 208
 ```
 
@@ -238,6 +289,7 @@ tbl = mdl_compare_uni$plot_batch_ases(only_sliding = TRUE)
 ```{r}
 tbl <- mdl_compare_uni$plot_boxplot_ases()
 ```
+# Forecasting
 
 ```{r}
 fcstPlot = mdl_compare_uni$plot_simple_forecasts()
@@ -252,14 +304,33 @@ p = ggplot2::ggplot(data=dataModels, aes(x=Time)) +
   geom_line(aes(y=f,color=Model),size=.8) +
   geom_line(data=dataReal,aes(y=f),size=.2,color='#444444',linetype=1) +
   ggthemes::theme_pander() +
-  labs(x='Time',y='Value') +
+  labs(x='Week ID',y='Cases of Influcenza (Log)',title='Prediction of log-based Influenza Cases ') +
   ggplot2::theme(
     legend.position = 'top'
     
   )
 p
 ```
+## un-logged prediction
 
+```{r fig.height=6}
+fcstPlot$plot_data_nolog = fcstPlot$plot_data %>%   mutate(f=exp(f),ll=exp(ll),ul=exp(ul))
+dataReal= filter(fcstPlot$plot_data_nolog,Model == 'Actual') %>%
+  mutate(f)
+dataModels= filter(fcstPlot$plot_data_nolog,Model != 'Actual')
+
+p = ggplot2::ggplot(data=dataModels, aes(x=Time)) +
+  geom_line(aes(y=f,color=Model),size=.8) +
+  geom_line(data=dataReal,aes(y=f),size=.2,color='#444444',linetype=1) +
+  ggthemes::theme_pander() +
+  scale_y_continuous(label=comma ) +
+  labs(x='Week ID',y='Cases of Influcenza',title='Prediction of Influenza Cases ') +
+  ggplot2::theme(
+    legend.position = 'top'
+    
+  )
+p
+```
 ## Conclusion
 
 In conclusion, it seems that the Seasonal ARIMA model without differencing seems to be performing better in general.

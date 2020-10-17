@@ -1,20 +1,24 @@
 Flu Data Analysis
 ================
 Nikhil Gupta
-2020-10-17 09:18:40
+2020-10-17 15:45:22
 
 -   [Response Variable](#response-variable)
+    -   [checking for nulls](#checking-for-nulls)
+    -   [Simple representation](#simple-representation)
 -   [Checking for Mean and Variance grouping by
     year](#checking-for-mean-and-variance-grouping-by-year)
+    -   [Simple representation](#simple-representation-1)
+    -   [Overlapping years](#overlapping-years)
 -   [Modeling](#modeling)
     -   [Stationarity](#stationarity)
     -   [Seasonal ARIMA Model](#seasonal-arima-model)
         -   [Model ID](#model-id)
+            -   [Theta for the d1 model](#theta-for-the-d1-model)
         -   [Model Fit](#model-fit)
             -   [Evaluation of the
                 Residuals](#evaluation-of-the-residuals)
             -   [Model Characterisics](#model-characterisics)
-    -   [Conclusion](#conclusion)
 
     library(tidyverse)
 
@@ -29,6 +33,19 @@ Nikhil Gupta
     ## x dplyr::filter() masks stats::filter()
     ## x dplyr::lag()    masks stats::lag()
 
+    library(scales)
+
+    ## 
+    ## Attaching package: 'scales'
+
+    ## The following object is masked from 'package:purrr':
+    ## 
+    ##     discard
+
+    ## The following object is masked from 'package:readr':
+    ## 
+    ##     col_factor
+
     library(tswge)
     library(tseries)
 
@@ -36,22 +53,35 @@ Nikhil Gupta
     ##   method            from
     ##   as.zoo.data.frame zoo
 
+    library(lubridate)
+
+    ## 
+    ## Attaching package: 'lubridate'
+
+    ## The following objects are masked from 'package:base':
+    ## 
+    ##     date, intersect, setdiff, union
+
     library(tswgewrapped) 
     #https://github.com/josephsdavid/tswgewrapped
     #https://josephsdavid.github.io/tswgewrapped/index.html
 
-    data = read.csv("../../data/FluNetInteractiveReport_2010_2019.csv") 
+    data = read.csv("../../data/FluNetInteractiveReport_2010_2019.csv")  %>%
+      rowid_to_column() %>%
+      mutate(SDATE = as.Date(SDATE)
+             ,EDATE = as.Date(EDATE))
     data %>% glimpse()
 
     ## Rows: 521
-    ## Columns: 22
+    ## Columns: 23
+    ## $ rowid             <int> 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15...
     ## $ Country           <chr> "United States of America", "United States of Ame...
     ## $ WHOREGION         <chr> "Region of the Americas of WHO", "Region of the A...
     ## $ FLUREGION         <chr> "North America", "North America", "North America"...
     ## $ Year              <int> 2010, 2010, 2010, 2010, 2010, 2010, 2010, 2010, 2...
     ## $ Week              <int> 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15...
-    ## $ SDATE             <chr> "2010-01-04", "2010-01-11", "2010-01-18", "2010-0...
-    ## $ EDATE             <chr> "2010-01-10", "2010-01-17", "2010-01-24", "2010-0...
+    ## $ SDATE             <date> 2010-01-04, 2010-01-11, 2010-01-18, 2010-01-25, ...
+    ## $ EDATE             <date> 2010-01-10, 2010-01-17, 2010-01-24, 2010-01-31, ...
     ## $ SPEC_RECEIVED_NB  <int> 9600, 8678, 8626, 8622, 8485, 8270, 8463, 8106, 7...
     ## $ SPEC_PROCESSED_NB <int> 9600, 8678, 8626, 8622, 8485, 8270, 8463, 8106, 7...
     ## $ AH1               <int> 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0...
@@ -73,15 +103,54 @@ Response Variable
 
     flu = data$ALL_INF
 
+checking for nulls
+------------------
+
+    message("Any null? ",any(is.na(flu)))
+
+    ## Any null? FALSE
+
+    summary(flu)
+
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ##       2     138     447    2332    2282   26386
+
+    plot(density(flu))
+
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+
+    plot(density(log(flu)))
+
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-4-2.png)<!-- -->
+
+Simple representation
+---------------------
+
 Checking for Mean and Variance grouping by year
 ===============================================
 
-    ggplot2::ggplot(data=data,aes(x=Week,y=log(ALL_INF),color=(Year))) +
+Simple representation
+---------------------
+
+    ggplot2::ggplot(data=data,aes(x=SDATE,y=log(ALL_INF))) +
+      geom_line() +
+      scale_x_date(date_breaks = 'year',labels=year,minor_breaks = NULL)+
+      ggthemes::theme_pander() +
+      labs(x='Date',y='Num Cases (Log based)')   
+
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
+
+Overlapping years
+-----------------
+
+    ggplot2::ggplot(data=data,aes(x=Week,y=log(ALL_INF),color=Year)) +
       geom_point()+
       #scale_color_brewer('blues')
-      scale_color_gradient(breaks=unique(data$Year))
+      scale_color_gradient(breaks=unique(data$Year)) +
+      ggthemes::theme_pander() +
+      labs(x='Week Number',y='Num Cases (Log based)',color='Year')   
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
 \#\# Dickey-Fuller Test
 
 Ho: The model has a root of +1 (nonstationary). Ha: The model does not
@@ -90,7 +159,19 @@ have a root of +1 (stationary).
     #https://stats.stackexchange.com/questions/225087/seasonal-data-deemed-stationary-by-adf-and-kpss-tests
     noSeas = tswge::artrans.wge(log(data$ALL_INF), phi.tr = c(rep(0,51), 1))
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-7-1.png)<!-- -->
+
+    ggplot2::qplot(y=log(data$ALL_INF),x=1:nrow(data),geom='line',main='Influenza Cases (Log)'
+                   ,ylim=c(-3,11),xlab='Week ID',ylab="Influenza Cases (Log)") + 
+      ggthemes::theme_pander()
+
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-7-2.png)<!-- -->
+
+    ggplot2::qplot(y=noSeas,x=1:length(noSeas),geom='line',main='Non-Seasonal Influenza Cases (Log)'
+                   ,ylim=c(-3,11),xlab='Week ID',ylab="Non-Seasonal Influenza Cases (Log)") + 
+      ggthemes::theme_pander() 
+
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-7-3.png)<!-- -->
 
     tseries::adf.test(noSeas)
 
@@ -105,11 +186,11 @@ have a root of +1 (stationary).
 
     p=tswge::plotts.sample.wge(log(data$ALL_INF),lag.max = 100,trunc = 100)
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-5-2.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-7-4.png)<!-- -->
 
     p=tswge::plotts.sample.wge(noSeas,lag.max = 100,trunc = 100)
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-5-3.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-7-5.png)<!-- -->
 \#\# Running Avg
 
     library(zoo)
@@ -129,7 +210,7 @@ have a root of +1 (stationary).
 
     ## Warning: Removed 51 rows containing missing values (geom_point).
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
 
 It may be worthwhile to take the log to smooth out the peaks
 
@@ -141,7 +222,7 @@ Modeling
 Stationarity
 ------------
 
-    tswgewrapped::check_stationarity(log_flu, ylab = 'Flu Infections (log)', title = 'Flu Infections over Time in US')
+    tswgewrapped::check_stationarity(noSeas, ylab = 'Flu Infections (log)', title = 'Flu Infections over Time in US')
 
     ## Loading required namespace: ggfortify
 
@@ -153,7 +234,7 @@ Stationarity
     ## This warning is displayed once every 8 hours.
     ## Call `lifecycle::last_warnings()` to see where this warning was generated.
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
 
     ## [1] TRUE
 
@@ -198,19 +279,19 @@ Lets remove that to try to make the data stationary
 
     flu_s52 = tswge::artrans.wge(log_flu, phi.tr = c(rep(0,51), 1))
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-9-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
 
     px = plotts.sample.wge(flu_s52, lag.max = 125, trunc = 100)
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-9-2.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-11-2.png)<!-- -->
 
     flu_s52_d1 = tswge::artrans.wge(flu_s52, phi.tr = 1)
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->
 
     px = plotts.sample.wge(flu_s52_d1, lag.max = 125)
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-10-2.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-12-2.png)<!-- -->
 
     aicbic.tables_d1 = tswgewrapped::aicbic(flu_s52_d1, p=0:8, q=0:8, silent = TRUE, merge = TRUE)
     aicbic.tables_d1
@@ -240,6 +321,10 @@ flu\_s52\_d1. We will use this going forward ARMA(3,1) seems to be on
 the top of the list using BIC for est\_s52. We will use this going
 forward
 
+    message("Model with differnce term")
+
+    ## Model with differnce term
+
     est_s52_d1 = tswge::est.arma.wge(flu_s52_d1, p = aicbic.tables_d1$p[1], q = aicbic.tables_d1$q[1])
 
     ## 
@@ -254,6 +339,27 @@ forward
     ##   
     ## 
 
+    message("   Theta terms:")
+
+    ##    Theta terms:
+
+    est_s52_d1$theta
+
+    ## [1] 0.1260681 0.8739296
+
+    message("   Variance of noise:")
+
+    ##    Variance of noise:
+
+    est_s52_d1$avar
+
+    ## [1] 0.08437336
+
+    message("\nModel without differnce term")
+
+    ## 
+    ## Model without differnce term
+
     est_s52    = tswge::est.arma.wge(flu_s52, p = aicbic.tables$p[1], q = aicbic.tables$q[1])
 
     ## 
@@ -267,6 +373,16 @@ forward
     ##   
     ## 
 
+    message("   Variance of noise:")
+
+    ##    Variance of noise:
+
+    est_s52$avar
+
+    ## [1] 0.08430961
+
+#### Theta for the d1 model
+
 ### Model Fit
 
     #Max: automatically build the text
@@ -278,7 +394,7 @@ forward
       if(p==1 & est$phi[1] ==0) p=0
       q = length(est$theta)
       if(q==1 & est$theta[1] ==0) q=0
-      names(t)[1]=paste0("ARUMA(",p,",",d,",",q,")s",s)
+      names(t)[1]=paste0("ARIMA(",p,",",d,",",q,")s",s)
       
       return(t)
     }
@@ -286,10 +402,6 @@ forward
     models = c(getModel(est_s52_d1,s=52,d=1)
                   ,getModel(est_s52,s=52,d=0)
                   )
-    # models = list(
-    #   "ARUMA(2,1,0) s=52" = list(phi = est_s52_d1$phi, theta = est_s52_d1$theta, s=52, d=1, vara = est_s52_d1$avar, res = est_s52_d1$res, sliding_ase = TRUE),
-    #   "ARUMA(3,0,1) s=52" = list(phi = est_s52$phi, theta = est_s52$theta, s=52, d=0, vara = est_s52$avar, res = est_s52$res, sliding_ase = TRUE)
-    # )
 
     log_flu = data.frame(log_flu)
     head(log_flu)
@@ -303,7 +415,7 @@ forward
     ## 6 5.888878
 
     var_interest = 'log_flu'
-    n.ahead = 52
+    n.ahead = 52*2
     batch_size = 208
 
     mdl_compare_uni = tswgewrapped::ModelCompareUnivariate$new(
@@ -326,16 +438,16 @@ residuals are not white noise.
 
     ## 
     ## 
-    ## Evaluating residuals for model: 'ARUMA(7,1,2)s52'
+    ## Evaluating residuals for model: 'ARIMA(7,1,2)s52'
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-18-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-21-1.png)<!-- -->
 
     ## None of the 'ljung_box' tests rejected the null hypothesis that the data is consistent with white noise at an significance level of  0.05  
     ## 
     ## 
-    ## Evaluating residuals for model: 'ARUMA(6,0,0)s52'
+    ## Evaluating residuals for model: 'ARIMA(6,0,0)s52'
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-18-2.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-21-2.png)<!-- -->
 
     ## None of the 'ljung_box' tests rejected the null hypothesis that the data is consistent with white noise at an significance level of  0.05
 
@@ -344,7 +456,7 @@ residuals are not white noise.
     # show sliding window forecasts
     tbl = mdl_compare_uni$plot_batch_forecasts(only_sliding = TRUE)
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-19-1.png)<!-- -->![](flu_data_analysis_files/figure-gfm/unnamed-chunk-19-2.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->![](flu_data_analysis_files/figure-gfm/unnamed-chunk-22-2.png)<!-- -->
 
     #add windows sections
     dataReal= filter(tbl$forecasts,Model == 'Realization')
@@ -362,22 +474,23 @@ residuals are not white noise.
       )
     p
 
-    ## Warning: Removed 314 row(s) containing missing values (geom_path).
+    ## Warning: Removed 210 row(s) containing missing values (geom_path).
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
 
     # show ASE over time (windows)
     tbl = mdl_compare_uni$plot_batch_ases(only_sliding = TRUE)
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-21-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-24-1.png)<!-- -->
 
     tbl <- mdl_compare_uni$plot_boxplot_ases()
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-25-1.png)<!-- -->
+\# Forecasting
 
     fcstPlot = mdl_compare_uni$plot_simple_forecasts()
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-26-1.png)<!-- -->
 
     dataReal= filter(fcstPlot$plot_data,Model == 'Actual')
     dataModels= filter(fcstPlot$plot_data,Model != 'Actual')
@@ -387,17 +500,35 @@ residuals are not white noise.
       geom_line(aes(y=f,color=Model),size=.8) +
       geom_line(data=dataReal,aes(y=f),size=.2,color='#444444',linetype=1) +
       ggthemes::theme_pander() +
-      labs(x='Time',y='Value') +
+      labs(x='Week ID',y='Cases of Influcenza (Log)',title='Prediction of log-based Influenza Cases ') +
       ggplot2::theme(
         legend.position = 'top'
         
       )
     p
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-24-1.png)<!-- -->
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-27-1.png)<!-- -->
+\#\# un-logged prediction
 
-Conclusion
-----------
+    fcstPlot$plot_data_nolog = fcstPlot$plot_data %>%   mutate(f=exp(f),ll=exp(ll),ul=exp(ul))
+    dataReal= filter(fcstPlot$plot_data_nolog,Model == 'Actual') %>%
+      mutate(f)
+    dataModels= filter(fcstPlot$plot_data_nolog,Model != 'Actual')
+
+    p = ggplot2::ggplot(data=dataModels, aes(x=Time)) +
+      geom_line(aes(y=f,color=Model),size=.8) +
+      geom_line(data=dataReal,aes(y=f),size=.2,color='#444444',linetype=1) +
+      ggthemes::theme_pander() +
+      scale_y_continuous(label=comma ) +
+      labs(x='Week ID',y='Cases of Influcenza',title='Prediction of Influenza Cases ') +
+      ggplot2::theme(
+        legend.position = 'top'
+        
+      )
+    p
+
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-28-1.png)<!-- -->
+\#\# Conclusion
 
 In conclusion, it seems that the Seasonal ARIMA model without
 differencing seems to be performing better in general. The trend is not
