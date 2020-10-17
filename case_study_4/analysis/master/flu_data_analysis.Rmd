@@ -2,7 +2,6 @@
 title: "Flu Data Analysis"
 author: "Nikhil Gupta"
 date: "`r Sys.time()`"
-always_allow_html: yes
 output:
   github_document:
     toc: true
@@ -17,7 +16,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r}
+```{r include=FALSE}
 library(tidyverse)
 library(scales)
 library(tswge)
@@ -28,6 +27,8 @@ library(tswgewrapped)
 #https://josephsdavid.github.io/tswgewrapped/index.html
 
 ```
+
+# Reading Data
 
 ```{r}
 data = read.csv("../../data/FluNetInteractiveReport_2010_2019.csv")  %>%
@@ -230,7 +231,7 @@ head(log_flu)
 
 ```{r}
 var_interest = 'log_flu'
-n.ahead = 52*2
+n.ahead = 52 
 batch_size = 208
 ```
 
@@ -296,47 +297,67 @@ fcstPlot = mdl_compare_uni$plot_simple_forecasts()
 ```
 
 ```{r fig.height=6}
-dataReal= filter(fcstPlot$plot_data,Model == 'Actual')
-dataModels= filter(fcstPlot$plot_data,Model != 'Actual')
+fcstPlot$plot_data_log = fcstPlot$plot_data %>%  
+  left_join(select(data,rowid,SDATE),by=c('Time'='rowid')) %>%
+  mutate(DATE2 = min(.$SDATE,na.rm=T) + weeks(Time-min(.$Time))
+         ,DATE = if_else(is.na(SDATE),DATE2,SDATE))
 
-p = ggplot2::ggplot(data=dataModels, aes(x=Time)) +
+dataReal= filter(fcstPlot$plot_data_log,Model == 'Actual')
+dataModels= filter(fcstPlot$plot_data_log,Model == 'ARIMA(6,0,0)s52')
+
+p = ggplot2::ggplot(data=dataModels, aes(x=DATE)) +
   geom_ribbon(aes(ymin=ll,ymax=ul,fill=Model),alpha=.2)+
   geom_line(aes(y=f,color=Model),size=.8) +
   geom_line(data=dataReal,aes(y=f),size=.2,color='#444444',linetype=1) +
+  scale_x_date(date_breaks = 'year',labels=year,minor_breaks = NULL)+
   ggthemes::theme_pander() +
-  labs(x='Week ID',y='Cases of Influcenza (Log)',title='Prediction of log-based Influenza Cases ') +
+  labs(x='Date',y='Cases of Influcenza (Log)',title='Prediction of log-based Influenza Cases ') +
   ggplot2::theme(
     legend.position = 'top'
     
   )
 p
 ```
-## un-logged prediction
+## unlogged prediction
 
 ```{r fig.height=6}
-fcstPlot$plot_data_nolog = fcstPlot$plot_data %>%   mutate(f=exp(f),ll=exp(ll),ul=exp(ul))
-dataReal= filter(fcstPlot$plot_data_nolog,Model == 'Actual') %>%
-  mutate(f)
-dataModels= filter(fcstPlot$plot_data_nolog,Model != 'Actual')
+fcstPlot$plot_data_nolog = fcstPlot$plot_data_log %>%  
+  mutate(f=exp(f),ll=exp(ll),ul=exp(ul))
+  
+dataReal= filter(fcstPlot$plot_data_nolog,Model == 'Actual') 
+dataModels= filter(fcstPlot$plot_data_nolog,Model  == 'ARIMA(6,0,0)s52')
 
-p = ggplot2::ggplot(data=dataModels, aes(x=Time)) +
+p = ggplot2::ggplot(data=dataModels, aes(x=DATE)) +
   geom_line(aes(y=f,color=Model),size=.8) +
   geom_line(data=dataReal,aes(y=f),size=.2,color='#444444',linetype=1) +
   ggthemes::theme_pander() +
+  scale_x_date(date_breaks = 'year',labels=year,minor_breaks = NULL)+
   scale_y_continuous(label=comma ) +
-  labs(x='Week ID',y='Cases of Influcenza',title='Prediction of Influenza Cases ') +
+  labs(x='Date',y='Cases of Influcenza',title='Prediction of Influenza Cases ') +
   ggplot2::theme(
     legend.position = 'top'
     
   )
 p
 ```
-## Conclusion
-
-In conclusion, it seems that the Seasonal ARIMA model without differencing seems to be performing better in general.
-The trend is not appreciable in the logged data to warrant differencing (adding the Integrated term in the model).
 
 
 ```{r}
+tbl = fcstPlot$plot_data_nolog %>%
+  mutate(year = year(DATE)
+         ,month =month(DATE)
+         ,week = week(DATE)
+         ,FourWeeks = floor((week-1)/4)+1
+         ) %>%
+  filter((year %in% c(2018,2019) & Model =='Actual') |(year == 2020 & Model =='ARIMA(6,0,0)s52') 
+         ) %>%
+  group_by(year,FourWeeks) %>%
+  summarise(f=sum(f),Wmin=min(week)) %>%
+  ungroup() %>%
+  pivot_wider(id_cols=c('FourWeeks','Wmin'), values_from = 'f',names_from='year') %>%
+  mutate('% Change' = round(`2020`/`2019` - 1 ,3)) %>%
+  arrange(FourWeeks)
+tbl
+  
 ```
 

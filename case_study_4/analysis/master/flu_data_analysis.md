@@ -1,8 +1,9 @@
 Flu Data Analysis
 ================
 Nikhil Gupta
-2020-10-17 15:45:22
+2020-10-17 17:48:22
 
+-   [Reading Data](#reading-data)
 -   [Response Variable](#response-variable)
     -   [checking for nulls](#checking-for-nulls)
     -   [Simple representation](#simple-representation)
@@ -20,51 +21,8 @@ Nikhil Gupta
                 Residuals](#evaluation-of-the-residuals)
             -   [Model Characterisics](#model-characterisics)
 
-    library(tidyverse)
-
-    ## -- Attaching packages --------------------------------------- tidyverse 1.3.0 --
-
-    ## v ggplot2 3.3.2     v purrr   0.3.4
-    ## v tibble  3.0.3     v dplyr   1.0.2
-    ## v tidyr   1.1.2     v stringr 1.4.0
-    ## v readr   1.4.0     v forcats 0.5.0
-
-    ## -- Conflicts ------------------------------------------ tidyverse_conflicts() --
-    ## x dplyr::filter() masks stats::filter()
-    ## x dplyr::lag()    masks stats::lag()
-
-    library(scales)
-
-    ## 
-    ## Attaching package: 'scales'
-
-    ## The following object is masked from 'package:purrr':
-    ## 
-    ##     discard
-
-    ## The following object is masked from 'package:readr':
-    ## 
-    ##     col_factor
-
-    library(tswge)
-    library(tseries)
-
-    ## Registered S3 method overwritten by 'quantmod':
-    ##   method            from
-    ##   as.zoo.data.frame zoo
-
-    library(lubridate)
-
-    ## 
-    ## Attaching package: 'lubridate'
-
-    ## The following objects are masked from 'package:base':
-    ## 
-    ##     date, intersect, setdiff, union
-
-    library(tswgewrapped) 
-    #https://github.com/josephsdavid/tswgewrapped
-    #https://josephsdavid.github.io/tswgewrapped/index.html
+Reading Data
+============
 
     data = read.csv("../../data/FluNetInteractiveReport_2010_2019.csv")  %>%
       rowid_to_column() %>%
@@ -415,7 +373,7 @@ forward
     ## 6 5.888878
 
     var_interest = 'log_flu'
-    n.ahead = 52*2
+    n.ahead = 52 
     batch_size = 208
 
     mdl_compare_uni = tswgewrapped::ModelCompareUnivariate$new(
@@ -474,7 +432,7 @@ residuals are not white noise.
       )
     p
 
-    ## Warning: Removed 210 row(s) containing missing values (geom_path).
+    ## Warning: Removed 314 row(s) containing missing values (geom_path).
 
 ![](flu_data_analysis_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
 
@@ -492,15 +450,21 @@ residuals are not white noise.
 
 ![](flu_data_analysis_files/figure-gfm/unnamed-chunk-26-1.png)<!-- -->
 
-    dataReal= filter(fcstPlot$plot_data,Model == 'Actual')
-    dataModels= filter(fcstPlot$plot_data,Model != 'Actual')
+    fcstPlot$plot_data_log = fcstPlot$plot_data %>%  
+      left_join(select(data,rowid,SDATE),by=c('Time'='rowid')) %>%
+      mutate(DATE2 = min(.$SDATE,na.rm=T) + weeks(Time-min(.$Time))
+             ,DATE = if_else(is.na(SDATE),DATE2,SDATE))
 
-    p = ggplot2::ggplot(data=dataModels, aes(x=Time)) +
+    dataReal= filter(fcstPlot$plot_data_log,Model == 'Actual')
+    dataModels= filter(fcstPlot$plot_data_log,Model == 'ARIMA(6,0,0)s52')
+
+    p = ggplot2::ggplot(data=dataModels, aes(x=DATE)) +
       geom_ribbon(aes(ymin=ll,ymax=ul,fill=Model),alpha=.2)+
       geom_line(aes(y=f,color=Model),size=.8) +
       geom_line(data=dataReal,aes(y=f),size=.2,color='#444444',linetype=1) +
+      scale_x_date(date_breaks = 'year',labels=year,minor_breaks = NULL)+
       ggthemes::theme_pander() +
-      labs(x='Week ID',y='Cases of Influcenza (Log)',title='Prediction of log-based Influenza Cases ') +
+      labs(x='Date',y='Cases of Influcenza (Log)',title='Prediction of log-based Influenza Cases ') +
       ggplot2::theme(
         legend.position = 'top'
         
@@ -508,19 +472,21 @@ residuals are not white noise.
     p
 
 ![](flu_data_analysis_files/figure-gfm/unnamed-chunk-27-1.png)<!-- -->
-\#\# un-logged prediction
+\#\# unlogged prediction
 
-    fcstPlot$plot_data_nolog = fcstPlot$plot_data %>%   mutate(f=exp(f),ll=exp(ll),ul=exp(ul))
-    dataReal= filter(fcstPlot$plot_data_nolog,Model == 'Actual') %>%
-      mutate(f)
-    dataModels= filter(fcstPlot$plot_data_nolog,Model != 'Actual')
+    fcstPlot$plot_data_nolog = fcstPlot$plot_data_log %>%  
+      mutate(f=exp(f),ll=exp(ll),ul=exp(ul))
+      
+    dataReal= filter(fcstPlot$plot_data_nolog,Model == 'Actual') 
+    dataModels= filter(fcstPlot$plot_data_nolog,Model  == 'ARIMA(6,0,0)s52')
 
-    p = ggplot2::ggplot(data=dataModels, aes(x=Time)) +
+    p = ggplot2::ggplot(data=dataModels, aes(x=DATE)) +
       geom_line(aes(y=f,color=Model),size=.8) +
       geom_line(data=dataReal,aes(y=f),size=.2,color='#444444',linetype=1) +
       ggthemes::theme_pander() +
+      scale_x_date(date_breaks = 'year',labels=year,minor_breaks = NULL)+
       scale_y_continuous(label=comma ) +
-      labs(x='Week ID',y='Cases of Influcenza',title='Prediction of Influenza Cases ') +
+      labs(x='Date',y='Cases of Influcenza',title='Prediction of Influenza Cases ') +
       ggplot2::theme(
         legend.position = 'top'
         
@@ -528,9 +494,40 @@ residuals are not white noise.
     p
 
 ![](flu_data_analysis_files/figure-gfm/unnamed-chunk-28-1.png)<!-- -->
-\#\# Conclusion
 
-In conclusion, it seems that the Seasonal ARIMA model without
-differencing seems to be performing better in general. The trend is not
-appreciable in the logged data to warrant differencing (adding the
-Integrated term in the model).
+    tbl = fcstPlot$plot_data_nolog %>%
+      mutate(year = year(DATE)
+             ,month =month(DATE)
+             ,week = week(DATE)
+             ,FourWeeks = floor((week-1)/4)+1
+             ) %>%
+      filter((year %in% c(2018,2019) & Model =='Actual') |(year == 2020 & Model =='ARIMA(6,0,0)s52') 
+             ) %>%
+      group_by(year,FourWeeks) %>%
+      summarise(f=sum(f),Wmin=min(week)) %>%
+      ungroup() %>%
+      pivot_wider(id_cols=c('FourWeeks','Wmin'), values_from = 'f',names_from='year') %>%
+      mutate('% Change' = round(`2020`/`2019` - 1 ,3)) %>%
+      arrange(FourWeeks)
+
+    ## `summarise()` regrouping output by 'year' (override with `.groups` argument)
+
+    tbl
+
+    ## # A tibble: 14 x 6
+    ##    FourWeeks  Wmin `2018` `2019` `2020` `% Change`
+    ##        <dbl> <dbl>  <dbl>  <dbl>  <dbl>      <dbl>
+    ##  1         1     1 91773. 40272. 69644.      0.729
+    ##  2         2     5 91484. 68204. 95432.      0.399
+    ##  3         3     9 31865. 57249. 67346.      0.176
+    ##  4         4    13 15778. 16556  17381.      0.05 
+    ##  5         5    17  4449   3617.  3536.     -0.022
+    ##  6         6    21   847.  1734   1651.     -0.048
+    ##  7         7    25   372.  1099.  1044.     -0.05 
+    ##  8         8    29   354.   991.   951.     -0.04 
+    ##  9         9    33   582   1702.  1656.     -0.027
+    ## 10        10    37  1134.  2141   2107.     -0.016
+    ## 11        11    41  2074.  4796   4767.     -0.006
+    ## 12        12    45  4579. 19012. 18992.     -0.001
+    ## 13        13    49 22320. 44016. 44082.      0.001
+    ## 14        14    53  7068.    NA     NA      NA
