@@ -1,7 +1,7 @@
 Flu Data Analysis
 ================
 Nikhil Gupta
-2020-10-17 17:48:22
+2020-10-18 11:24:45
 
 -   [Reading Data](#reading-data)
 -   [Response Variable](#response-variable)
@@ -20,6 +20,7 @@ Nikhil Gupta
             -   [Evaluation of the
                 Residuals](#evaluation-of-the-residuals)
             -   [Model Characterisics](#model-characterisics)
+    -   [unlogged prediction](#unlogged-prediction)
 
 Reading Data
 ============
@@ -471,8 +472,11 @@ residuals are not white noise.
       )
     p
 
-![](flu_data_analysis_files/figure-gfm/unnamed-chunk-27-1.png)<!-- -->
-\#\# unlogged prediction
+![](flu_data_analysis_files/figure-gfm/unnamed-chunk-27-1.png)<!-- --> n
+b
+
+unlogged prediction
+-------------------
 
     fcstPlot$plot_data_nolog = fcstPlot$plot_data_log %>%  
       mutate(f=exp(f),ll=exp(ll),ul=exp(ul))

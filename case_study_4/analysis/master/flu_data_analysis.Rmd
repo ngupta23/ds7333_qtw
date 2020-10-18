@@ -318,6 +318,16 @@ p = ggplot2::ggplot(data=dataModels, aes(x=DATE)) +
   )
 p
 ```
+n b
+
+
+
+
+
+
+
+
+
 ## unlogged prediction
 
 ```{r fig.height=6}
