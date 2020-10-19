@@ -1,0 +1,373 @@
+---
+title: "Flu Data Analysis"
+author: "Nikhil Gupta"
+date: "`r Sys.time()`"
+output:
+  github_document:
+    toc: true
+    toc_depth: 6
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+library(tidyverse)
+library(scales)
+library(tswge)
+library(tseries)
+library(lubridate)
+library(tswgewrapped) 
+#https://github.com/josephsdavid/tswgewrapped
+#https://josephsdavid.github.io/tswgewrapped/index.html
+
+```
+
+# Reading Data
+
+```{r}
+data = read.csv("../../data/FluNetInteractiveReport_2010_2019.csv")  %>%
+  rowid_to_column() %>%
+  mutate(SDATE = as.Date(SDATE)
+         ,EDATE = as.Date(EDATE))
+data %>% glimpse()
+```
+
+# Response Variable
+
+```{r}
+flu = data$ALL_INF
+```
+
+
+## checking for nulls
+```{r}
+message("Any null? ",any(is.na(flu)))
+summary(flu)
+plot(density(flu))
+plot(density(log(flu)))
+```
+
+## Simple representation 
+
+
+# Checking for Mean and Variance grouping by year 
+
+## Simple representation 
+```{r}
+ggplot2::ggplot(data=data,aes(x=SDATE,y=log(ALL_INF))) +
+  geom_line() +
+  scale_x_date(date_breaks = 'year',labels=year,minor_breaks = NULL)+
+  ggthemes::theme_pander() +
+  labs(x='Date',y='Num Cases (Log based)')   
+
+
+
+```
+
+
+## Overlapping years
+```{r}
+
+ggplot2::ggplot(data=data,aes(x=Week,y=log(ALL_INF),color=Year)) +
+  geom_point()+
+  #scale_color_brewer('blues')
+  scale_color_gradient(breaks=unique(data$Year)) +
+  ggthemes::theme_pander() +
+  labs(x='Week Number',y='Num Cases (Log based)',color='Year')   
+
+
+
+```
+## Dickey-Fuller Test
+
+Ho: The model has a root of +1 (nonstationary).
+Ha: The model does not have a root of +1 (stationary).
+
+```{r}
+#https://stats.stackexchange.com/questions/225087/seasonal-data-deemed-stationary-by-adf-and-kpss-tests
+noSeas = tswge::artrans.wge(log(data$ALL_INF), phi.tr = c(rep(0,51), 1))
+ggplot2::qplot(y=log(data$ALL_INF),x=1:nrow(data),geom='line',main='Influenza Cases (Log)'
+               ,ylim=c(-3,11),xlab='Week ID',ylab="Influenza Cases (Log)") + 
+  ggthemes::theme_pander()
+ggplot2::qplot(y=noSeas,x=1:length(noSeas),geom='line',main='Non-Seasonal Influenza Cases (Log)'
+               ,ylim=c(-3,11),xlab='Week ID',ylab="Non-Seasonal Influenza Cases (Log)") + 
+  ggthemes::theme_pander() 
+tseries::adf.test(noSeas)
+p=tswge::plotts.sample.wge(log(data$ALL_INF),lag.max = 100,trunc = 100)
+p=tswge::plotts.sample.wge(noSeas,lag.max = 100,trunc = 100)
+```
+## Running Avg
+```{r}
+library(zoo)
+
+ggplot2::ggplot(data=data,aes(x=as.Date(SDATE)
+                              ,y=zoo::rollmean(log(ALL_INF),52,fill=NA,align='right')
+                              ,color='Rolling Mean')) +
+  geom_point()+
+  geom_point(aes(y=log(ALL_INF),color='Actual'))
+```
+
+
+
+It may be worthwhile to take the log to smooth out the peaks
+
+```{r}
+log_flu = log(flu)
+```
+
+# Modeling
+
+## Stationarity
+
+```{r}
+tswgewrapped::check_stationarity(noSeas, ylab = 'Flu Infections (log)', title = 'Flu Infections over Time in US')
+```
+
+
+**Condition 1: Constant Mean**
+
+The mean does not appear to be constant over time. Therefore, the assumption of constant mean appears to be violated.
+
+**Condition 2: Constant Variance**
+
+Hard to say with just one realization. But if we superimpose year over year, there may seem to be some periods (especially during peaks) where the variance might be higher than the non-peak periods. Therefore, the assumption of constant variance may be violated.
+
+**Condition 3: Constant Autocorrelation**
+
+The ACF of the first and second half of the realization appear to exhibit similar behavior. Therefore, the assumption of constant autocorrelation does not appear to be violated.
+
+**Conclusion**
+
+Given the above analysis, there does appear to be sufficient evidence to suggest that the process generating the realization is not stationary. We will continue the ananlysis assuming the process generating the realization is not stationary.
+
+## Seasonal ARIMA Model
+
+### Model ID
+
+There appears to be a seasonality of 52 weeks in the data (can be seen from the peak at roughly 0.02 in the Parzen Window and from the periodicity in the ACF plots as well).
+
+There also seems to be a slight upward trend in the data which may be removed by differencing
+
+Lets remove that to try to make the data stationary
+
+```{r}
+flu_s52 = tswge::artrans.wge(log_flu, phi.tr = c(rep(0,51), 1))
+px = plotts.sample.wge(flu_s52, lag.max = 125, trunc = 100)
+```
+
+```{r}
+flu_s52_d1 = tswge::artrans.wge(flu_s52, phi.tr = 1)
+px = plotts.sample.wge(flu_s52_d1, lag.max = 125)
+```
+
+
+
+```{r}
+aicbic.tables_d1 = tswgewrapped::aicbic(flu_s52_d1, p=0:8, q=0:8, silent = TRUE, merge = TRUE)
+aicbic.tables_d1
+```
+
+```{r}
+aicbic.tables = tswgewrapped::aicbic(flu_s52, p=0:8,q= 0:8, silent = TRUE, merge = TRUE)
+aicbic.tables
+```
+
+ARMA(0,6) seems to be on the top of the list using both AIC and BIC for flu_s52_d1. We will use this going forward
+ARMA(3,1) seems to be on the top of the list using BIC for est_s52. We will use this going forward
+
+```{r}
+message("Model with differnce term")
+est_s52_d1 = tswge::est.arma.wge(flu_s52_d1, p = aicbic.tables_d1$p[1], q = aicbic.tables_d1$q[1])
+message("   Theta terms:")
+est_s52_d1$theta
+message("   Variance of noise:")
+est_s52_d1$avar
+message("\nModel without differnce term")
+est_s52    = tswge::est.arma.wge(flu_s52, p = aicbic.tables$p[1], q = aicbic.tables$q[1])
+message("   Variance of noise:")
+est_s52$avar
+
+```
+
+#### Theta for the d1 model
+
+```{r}
+
+
+```
+
+### Model Fit
+
+```{r}
+#Max: automatically build the text
+# setup object with unitvariate model
+getModel = function(est,s,d,sliding_ase=TRUE){
+  t=list('unnamed' = 
+         list(phi = est$phi, theta = est$theta, s=s, d=d, vara = est$avar, res = est$res, sliding_ase = TRUE))
+  p = length(est$phi)
+  if(p==1 & est$phi[1] ==0) p=0
+  q = length(est$theta)
+  if(q==1 & est$theta[1] ==0) q=0
+  names(t)[1]=paste0("ARIMA(",p,",",d,",",q,")s",s)
+  
+  return(t)
+}
+
+models = c(getModel(est_s52_d1,s=52,d=1)
+              ,getModel(est_s52,s=52,d=0)
+              )
+```
+
+```{r}
+log_flu = data.frame(log_flu)
+head(log_flu)
+```
+
+```{r}
+var_interest = 'log_flu'
+n.ahead = 52 
+batch_size = 208
+```
+
+```{r}
+mdl_compare_uni = tswgewrapped::ModelCompareUnivariate$new(
+  data = log_flu$log_flu,
+  var_interest = var_interest,
+  mdl_list = models,
+  n.ahead = n.ahead,
+  batch_size = batch_size
+)
+```
+
+#### Evaluation of the Residuals
+
+The residuals appear to be consisent with white noise. As secondary evaluation, the Ljung-Box test does not reject the null hypothesis that residuals are not white noise.
+
+```{r}
+tbl = mdl_compare_uni$evaluate_residuals()
+```
+
+#### Model Characterisics
+
+
+
+```{r, message=FALSE, warning=FALSE, fig.width = 8}
+# show sliding window forecasts
+tbl = mdl_compare_uni$plot_batch_forecasts(only_sliding = TRUE)
+```
+
+
+```{r fig.height=6}
+#add windows sections
+dataReal= filter(tbl$forecasts,Model == 'Realization')
+dataModels= filter(tbl$forecasts,Model != 'Realization')
+
+p = ggplot2::ggplot(data=dataModels, aes(x=Time)) +
+  geom_ribbon(aes(ymin=ll,ymax=ul,fill=Model),alpha=.2)+
+  geom_line(aes(y=f,color=Model),size=.8) +
+  geom_line(data=dataReal,aes(y=f),size=1.2,color='#444444',linetype=3) +
+  ggthemes::theme_pander() +
+  labs(x='Time',y='Value') +
+  ggplot2::theme(
+    legend.position = 'top'
+    
+  )
+p
+```
+
+
+```{r, message=FALSE, warning=FALSE, fig.width = 8}
+# show ASE over time (windows)
+tbl = mdl_compare_uni$plot_batch_ases(only_sliding = TRUE)
+```
+
+```{r}
+tbl <- mdl_compare_uni$plot_boxplot_ases()
+```
+# Forecasting
+
+```{r}
+fcstPlot = mdl_compare_uni$plot_simple_forecasts()
+```
+
+```{r fig.height=6}
+fcstPlot$plot_data_log = fcstPlot$plot_data %>%  
+  left_join(select(data,rowid,SDATE),by=c('Time'='rowid')) %>%
+  mutate(DATE2 = min(.$SDATE,na.rm=T) + weeks(Time-min(.$Time))
+         ,DATE = if_else(is.na(SDATE),DATE2,SDATE))
+
+dataReal= filter(fcstPlot$plot_data_log,Model == 'Actual')
+dataModels= filter(fcstPlot$plot_data_log,Model == 'ARIMA(6,0,0)s52')
+
+p = ggplot2::ggplot(data=dataModels, aes(x=DATE)) +
+  geom_ribbon(aes(ymin=ll,ymax=ul,fill=Model),alpha=.2)+
+  geom_line(aes(y=f,color=Model),size=.8) +
+  geom_line(data=dataReal,aes(y=f),size=.2,color='#444444',linetype=1) +
+  scale_x_date(date_breaks = 'year',labels=year,minor_breaks = NULL)+
+  ggthemes::theme_pander() +
+  labs(x='Date',y='Cases of Influcenza (Log)',title='Prediction of log-based Influenza Cases ') +
+  ggplot2::theme(
+    legend.position = 'top'
+    
+  )
+p
+```
+n b
+
+
+
+
+
+
+
+
+
+## unlogged prediction
+
+```{r fig.height=6}
+fcstPlot$plot_data_nolog = fcstPlot$plot_data_log %>%  
+  mutate(f=exp(f),ll=exp(ll),ul=exp(ul))
+  
+dataReal= filter(fcstPlot$plot_data_nolog,Model == 'Actual') 
+dataModels= filter(fcstPlot$plot_data_nolog,Model  == 'ARIMA(6,0,0)s52')
+
+p = ggplot2::ggplot(data=dataModels, aes(x=DATE)) +
+  geom_line(aes(y=f,color=Model),size=.8) +
+  geom_line(data=dataReal,aes(y=f),size=.2,color='#444444',linetype=1) +
+  ggthemes::theme_pander() +
+  scale_x_date(date_breaks = 'year',labels=year,minor_breaks = NULL)+
+  scale_y_continuous(label=comma ) +
+  labs(x='Date',y='Cases of Influcenza',title='Prediction of Influenza Cases ') +
+  ggplot2::theme(
+    legend.position = 'top'
+    
+  )
+p
+```
+
+
+```{r}
+tbl = fcstPlot$plot_data_nolog %>%
+  mutate(year = year(DATE)
+         ,month =month(DATE)
+         ,week = week(DATE)
+         ,FourWeeks = floor((week-1)/4)+1
+         ) %>%
+  filter((year %in% c(2018,2019) & Model =='Actual') |(year == 2020 & Model =='ARIMA(6,0,0)s52') 
+         ) %>%
+  group_by(year,FourWeeks) %>%
+  summarise(f=sum(f),Wmin=min(week)) %>%
+  ungroup() %>%
+  pivot_wider(id_cols=c('FourWeeks','Wmin'), values_from = 'f',names_from='year') %>%
+  mutate('% Change' = round(`2020`/`2019` - 1 ,3)) %>%
+  arrange(FourWeeks)
+tbl
+  
+```
+
