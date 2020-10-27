@@ -1,7 +1,7 @@
 Flu Data Analysis
 ================
 Nikhil Gupta
-2020-10-18 11:24:45
+2020-10-19 19:17:12
 
 -   [Reading Data](#reading-data)
 -   [Response Variable](#response-variable)
