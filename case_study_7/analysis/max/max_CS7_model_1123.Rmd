@@ -1,0 +1,222 @@
+---
+title: "Max_CS7"
+author: "Nikhil, Moro, Bhuvana"
+date: "11/21/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(tidyverse)
+library(qs)
+library(cowplot)
+library(ggrepel)
+library(scales)
+library(future)
+library(pryr)
+library(tictoc)
+library(pROC)
+```
+
+# Loading Data
+
+```{r}
+folder='x:/MMORO/Max.Master MSDS'
+data = readRDS(file.path(folder,'dataClean.rds'))
+modelFile = file.path(folder,'model_1123.RDS')
+```
+
+
+# Model XGBoost
+
+## Data Setup
+
+```{r}
+
+seed=1701
+message(rep('=',30))
+message('Processing Model: XGB, Name:')
+message(rep('=',30))
+message('Train and Test')
+trainIndex <- createDataPartition(data$y, p = .8, list = FALSE, times = 1)
+dataTrain = data[trainIndex,]
+dataTest =  data[-trainIndex,]
+target = 'y'
+predictors = names(data)[names(data)!= target]
+message("Ratio y: ", round(sum(dataTrain$y=='y')/nrow(dataTrain),3))
+message("Records: ", nrow(dataTrain))
+message("Predictors: ", length(predictors))
+```
+## Model Setting
+```{r}
+stats <- function (data, lev =  levels(data$obs), model = NULL)  {
+  cmY = caret::confusionMatrix(data$pred,data$obs,positive='y',mode='everything')
+  cmN = caret::confusionMatrix(data$pred,data$obs,positive='n',mode='everything')
+  tc = caret::twoClassSummary(data, lev = c('n','y'),model)
+  recallW = as.numeric(((cmN$byClass['Recall'] * sum(data$obs=='n'))
+                        +(cmY$byClass['Recall'] * sum(data$obs=='y')))/length(data$obs))
+  roc <- pROC::roc(response = data$obs=='y', predictor = data$y,percent=T)
+  prevalence = sum(data$pred =='y')/(nrow(data))
+  limit=pROC::coords(roc, x="best",input='thr', ret='all',best.method = 'y',best.weights = c(5,prevalence),transpose=FALSE)
+  bestThreshold = limit$threshold
+  
+  AUC = as.numeric(pROC::auc(roc))/100
+  AUC_recallW = (AUC) * (recallW)
+  c(cmY$overall
+    ,cmY$byClass
+    ,tc
+    ,AUC=AUC
+    ,recallW =  recallW
+    ,precisionW =  as.numeric(((cmN$byClass['Precision'] * sum(data$obs=='n'))
+                               +(cmY$byClass['Precision'] * sum(data$obs=='y')))/length(data$obs))
+    ,AUC_recallW = AUC_recallW
+    ,bestThreshold=bestThreshold
+  )
+}
+
+trControl <- trainControl(method = "boot" #boot - adaptive_boot" #https://lagunita.stanford.edu/c4x/HumanitiesScience/StatLearning/asset/cv_boot.pdf
+                          #https://topepo.github.io/caret/adaptive-resampling.html
+                          ,number =10
+                          ,classProbs=TRUE
+                          ,summaryFunction=stats
+                          ,allowParallel = T
+                          ,search='random' #random, grid
+                          ,trim=T
+)
+
+tuneGrid = expand.grid(nrounds= seq(from=800,to=2000, length.out =4) #800
+                       ,max_depth=c(10,20,300)
+                       ,eta = c(0.1)
+                       ,gamma= c(0)   #5 #https://medium.com/data-design/xgboost-hi-im-gamma-what-can-i-do-for-you-and-the-tuning-of-regularization-a42ea17e6ab6
+                       ,colsample_bytree=c(0.7,0.75,1) #0.6
+                       ,min_child_weight=c(1) 
+                       ,subsample   = 1 # c(1,1.5) # 0.6
+                       
+)
+```
+
+## Model Run
+```{r}
+if(T){
+  message(rep('=',30))
+  message('Model Fit')
+  
+  set.seed(1701)
+  maxCores=16
+  doFuture::registerDoFuture()
+  future::plan(multiprocess,workers=min(availableCores(),maxCores))
+  
+  message('modeling')
+  message('dataset size: ', round(pryr::object_size(dataTrain)/1024^2,2),"MB")
+  formula = as.formula(paste(target,'~',paste0(predictors,collapse='+')))
+  print(Sys.time());tic()
+  model=NULL
+  model <- caret::train(formula
+                        ,data = data.frame(dataTrain)
+                        ,method = "xgbTree"
+                        ,verbose=TRUE
+                        ,tuneGrid = tuneGrid
+                        #,tuneGrid = tunedParams
+                        # ,objective = "binary:logistic"
+                        ,trControl = trControl
+                        ,metric ="F1" #F1, #AUC_recallW, Recall
+                        ,maximize=T
+                        #,verbose=T
+                        #,na.action = na.omit
+                        
+  )
+  toc()
+  model$modelMetrics = model$results[as.numeric(row.names(model$bestTune)),]
+  print(model$modelMetrics[c('F1','Precision','Recall','recallW','AUC','AUC_recallW')])
+  model$varImp = varImp(model)
+  #stopCluster(cl)
+  future::plan(sequential)
+  message(rep('=',30))
+  message('Saving Model')
+  saveRDS(model,file=modelFile)
+} else {
+  model = readRDS(file=modelFile)
+}
+
+```
+
+
+# Model Info
+
+```{r}
+plot(model)
+message("Best Threshold:",model$modelMetrics$bestThreshold)
+model$bestTune
+```
+
+
+# Validation
+
+```{r}
+
+message(rep('=',30))
+message('Validation: Prediction')
+dataPred = dataTest %>% select(-y)
+prob =  predict(model,dataPred,type = "prob",na.remove=F)[,'y']
+#pred =  predict(model,dataPred,na.remove=F)
+#pred =  factor(ifelse(prob>= model$modelMetrics$bestThreshold,'y','n'),levels=c('n','y'))
+dataPred = dataPred %>%
+  mutate(y_prob = prob
+         ,pred =  factor(ifelse(y_prob>= model$modelMetrics$bestThreshold,'y','n'),levels=c('n','y'))
+         ,obs=factor(dataTest$y,levels=c('n','y'))
+  )
+
+
+
+```
+
+## MEtrics
+
+```{r}
+message('Validation: Metrics')
+validationMetrics=stats(dataPred)
+print(validationMetrics[c('F1','Precision','Recall','recallW','AUC','AUC_recallW')])
+
+confMatrix = dataPred %>%
+  group_by(obs,pred) %>%
+  summarize(count=n()) %>%
+  group_by(obs) %>%
+  summarize(perc = count/sum(count)
+            ,label=paste0(scales::percent(perc),' ',comma(count))
+            ,obs = obs
+            ,evaluation = ifelse(obs==pred,'Correct','Wrong'))
+
+
+```
+
+## Plot Conf Matrix
+
+```{r}
+p=ggplot(data=confMatrix,aes_string(x='obs',y='perc',label='label',fill='evaluation'))+
+  geom_bar(position = 'stack',stat='identity') +
+  geom_text(aes(vjust=ifelse(perc>0.1,1.1,-.1),color=evaluation),position='stack',size=5,check_overlap = T) +
+  xlab('Actual value of Y') +
+  scale_fill_manual(values=c('Correct' = '#1b9e77','Wrong'='#d95f02'))+
+  scale_color_manual(values=c('Correct' = 'darkgreen','Wrong'='darkred'))
+p
+```
+
+## ROC
+```{r}
+
+roc <- pROC::roc(response = dataPred$obs, predictor =dataPred$y_prob,percent=T)
+plot(roc)
+
+```
+
+## Feature Importance
+```{r}
+
+vi=model$varImp
+plot(vi,20)
+vit=data.frame(importance = vi$importance$Overall)
+vit$predictor = rownames(vi$importance)
+
+```
+
