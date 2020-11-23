@@ -13,12 +13,17 @@ library(qs)
 library(cowplot)
 library(ggrepel)
 library(scales)
+library(future)
+library(pryr)
+library(tictoc)
+library(pROC)
 ```
 
 # Loading Data
 
 ```{r}
-folder = 'C:/max/OneDriveSMU/OneDrive - Southern Methodist University/2020-08 QTW/CS7'
+#folder = 'C:/max/OneDriveSMU/OneDrive - Southern Methodist University/2020-08 QTW/CS7'
+folder='x:/MMORO/Max.Master MSDS'
 if(F){
   dataRaw = read.csv(file.path(folder,'final_project.csv'))
   saveRDS(data_raw,file.path(folder,'final_project.rds'))
@@ -31,7 +36,7 @@ dataRaw = dataRaw %>%
          ,x37 = as.numeric(gsub('[$,]','',x37))
          ,x32 = as.numeric(gsub('[%,]','',x32))/100
   )
-  
+
 ```
 
 
@@ -48,7 +53,7 @@ numCols = colnames(dataRaw)[which(lapply(dataRaw,class)=='numeric')]
 ```{r}
 NAs = sapply(numCols,function(col){sum(is.na(dataRaw[[col]]))})
 print(NAs)
-NAsRows = NAsRows = unique(unlist(lapply(numCols,function(col){which(is.na(dataRaw[[col]]))})))
+NAsRows = unique(unlist(lapply(numCols,function(col){which(is.na(dataRaw[[col]]))})))
 print(length(NAsRows))
 
 ```
@@ -134,9 +139,9 @@ textCols = colnames(dataRaw)[which(lapply(dataRaw,class)!='numeric')]
 ```{r}
 NAs = sapply(textCols,function(col){sum(is.na(dataRaw[[col]]))})
 print(NAs)
-NAsRows = NAsRows = unique(unlist(lapply(textCols,function(col){which(is.na(dataRaw[[col]]))})))
-print(length(NAsRows))
-
+NAsRowsText = unique(unlist(lapply(textCols,function(col){which(is.na(dataRaw[[col]]))})))
+print(length(NAsRowsText))
+NAsRows = c(NAsRows,NAsRowsText)
 ```
 ### Count of Records
 ```{r}
@@ -162,7 +167,7 @@ p = lapply(textCols
                geom_text(stat='count', aes(
                  #label=comma(..count..,accuracy=1)
                  label=paste0(comma(..count..,accuracy=1),'\n(',percent(..count../sum(..count..),accuracy=1),')')
-                 ), size=3,vjust=1 ) +
+               ), size=3,vjust=1 ) +
                #scale_fill_brewer(palette ='Blues') +
                ggplot2::theme(text = element_text(size=10)
                               ,axis.text.x = element_text(angle=90,size=10)
@@ -191,19 +196,19 @@ p = lapply(textCols[textCols!='y']
                       ,tot= sum(count)) %>%
                ungroup() %>%
                mutate(col=forcats::fct_reorder(factor(col),tot))
-            
-            Ncol = '#2b8cbe'
-            Ycol = '#a6bddb'
-            ynote = levels(dt$col)[ceiling(length(levels(dt$col))/2)]
+             
+             Ncol = '#2b8cbe'
+             Ycol = '#a6bddb'
+             ynote = levels(dt$col)[ceiling(length(levels(dt$col))/2)]
              note=rbind(data.frame(y=ynote,x=max(filter(dt,y=='y')$count)
                                    ,label='Y = 1',color=Ycol,alpha=1,hjust=0,angle=90)
                         ,data.frame(y=ynote,x=-max(filter(dt,y=='n')$count)
                                     ,label='Y = 0',color=Ncol,alpha=1,hjust=0,angle=90)
              )
-            
-            dtY = filter(dt,y=='y')
-            dtN = filter(dt,y=='n')
-            
+             
+             dtY = filter(dt,y=='y')
+             dtN = filter(dt,y=='n')
+             
              p=ggplot(data=dt,aes(y=col,fill=col)) +
                ggplot2::geom_col(data=dtY,aes(x=count),fill='#2b8cbe')+
                ggplot2::geom_text(data=dtY,aes(x=1,label=label),size=3,hjust=-.5)+
@@ -212,11 +217,11 @@ p = lapply(textCols[textCols!='y']
                ggplot2::geom_text(data=note,aes(x=x,y=y,label=label,alpha=alpha,hjust=hjust,angle=angle)
                                   ,inherit.aes = F,size=5) +
                ggplot2::ggtitle(paste0('Y=0 vs. Y=1 for column ', col)) +
-                ggplot2::theme(text = element_text(size=10)
+               ggplot2::theme(text = element_text(size=10)
                               ,axis.text.x = element_text(angle=90,size=10)
                               ,legend.position = "none")
-               #ggplot2::scale_fill_brewer('blues')
-               
+             #ggplot2::scale_fill_brewer('blues')
+             
            }
            
 )
@@ -231,21 +236,12 @@ cowplot::plot_grid(plotlist = p,nrow = 2,ncol =2 , label_size=2)
 # Removing Nas
 data = dataRaw[-NAsRows,] %>%
   select(-c(x6,x41))
+
+
 ```
 
-# Model XGBoost
+# Saving clean data
 
 ```{r}
-
-seed=1701
-message(rep('=',30))
-message('Processing Model: XGB, Name:')
-message(rep('=',30))
-#trainIndex <- createDataPartition(data$y, p = .8, list = FALSE, times = 1)
-#dataTrain = data[trainIndex,]
-#dataTest =  data[-trainIndex,]
-# sampling
-
-# sample= 0.1
+saveRDS(data,file.path(folder,'dataClean.rds'))
 ```
-
