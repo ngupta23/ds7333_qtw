@@ -242,8 +242,39 @@ vit$predictor = rownames(vi$importance)
 
 # Feature Effect
 
+## Partial  Depndence Plot
+
 ```{r fig.height=7, fig.width=10}
-if (F){
+if (T){
+  topPredictors = 10
+  
+  imlModel=iml::Predictor$new(model=model,data=model$trainingData #%>% sample_frac(0.1)
+                              ,y='.outcome',class='y',type='prob')
+  t=predict(model,imlModel$data$get.x(),type='prob')
+  yhat = mean(t$y)
+  message("Mean prediction y: ",yhat)
+  
+  doFuture::registerDoFuture()
+  future::plan(multiprocess,workers=topPredictors)
+  
+  feats = vit %>% arrange(-importance) %>% dplyr::slice(1:topPredictors) %>% pull(predictor)
+  imlFeaturesEffect  = FeatureEffects$new(imlModel,grid.size =12,method='pdp',features = feats)
+  future::plan(sequential)
+  imlFeaturesEffectPlot=imlFeaturesEffect$plot(rug=F)
+  saveRDS(imlFeaturesEffectPlot,file=imlFile)
+} else {
+  imlFeaturesEffectPlot = readRDS(file=imlFile)
+}
+imlFeaturesEffectPlot
+```
+
+
+
+
+## Accumulated Local Effect
+
+```{r fig.height=7, fig.width=10}
+if (T){
   topPredictors = 10
   
   imlModel=iml::Predictor$new(model=model,data=model$trainingData #%>% sample_frac(0.1)

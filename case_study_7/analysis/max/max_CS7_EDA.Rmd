@@ -23,7 +23,7 @@ library(pROC)
 
 ```{r}
 #folder = 'C:/max/OneDriveSMU/OneDrive - Southern Methodist University/2020-08 QTW/CS7'
-folder='x:/MMORO/Max.Master MSDS'
+folder='../../../..'
 if(F){
   dataRaw = read.csv(file.path(folder,'final_project.csv'))
   saveRDS(data_raw,file.path(folder,'final_project.rds'))
@@ -32,7 +32,7 @@ if(F){
 }
 
 dataRaw = dataRaw %>%
-  mutate(y = ifelse(y==1,'y','n')
+  mutate(y = factor(y) #ifelse(y==1,'y','n')
          ,x37 = as.numeric(gsub('[$,]','',x37))
          ,x32 = as.numeric(gsub('[%,]','',x32))/100
   )
@@ -52,14 +52,20 @@ numCols = colnames(dataRaw)[which(lapply(dataRaw,class)=='numeric')]
 
 ```{r}
 NAs = sapply(numCols,function(col){sum(is.na(dataRaw[[col]]))})
+message("Number of missing values per each variable: ")
 print(NAs)
 NAsRows = unique(unlist(lapply(numCols,function(col){which(is.na(dataRaw[[col]]))})))
-print(length(NAsRows))
+message("Records with at least one missing value: ",length(NAsRows))
 
 ```
+```{r}
+message("Records with no valid values for all variables: "
+       ,sum(sapply(1:nrow(dataRaw),function(x) all(is.na(dataRaw[x,])))))
+```
+
 ### Variables Distribution
 
-```{r fig.height=20, fig.width=10}
+```{r fig.height=12, fig.width=10}
 
 
 p = lapply(numCols
@@ -75,22 +81,33 @@ p = lapply(numCols
            }
            
 )
-cowplot::plot_grid(plotlist = p,nrow = ceiling(length(numCols)/5),ncol =5 , label_size=5)
+cowplot::plot_grid(plotlist = p,nrow = ceiling(length(numCols)/6),ncol =6 , label_size=5)
 
 ```
+```{r}
+dt=dataRaw[-NAsRows,]
+
+message("Mean  of variables")
+summary(sapply(numCols,function(col)mean(dt[,col])))
+
+message("Standard Deviations of variables")
+summary(sapply(numCols,function(col)sd(dt[,col])))
+```
+
+
 ### Correlation
 ```{r fig.height=10, fig.width=10}
 dataCor = cor(dataRaw[-NAsRows,numCols])
 dataCorDF = as.data.frame(as.table(dataCor))
 
-highCorr = filter(dataCorDF,abs(Freq)>0.9, Var1 != Var2) %>% arrange(-Freq)
+highCorr = filter(dataCorDF,abs(Freq)>0.5, Var1 != Var2) %>% arrange(-Freq)
 print(highCorr)
 
 
 corrplot::corrplot(dataCor
                    ,method='square'
                    ,type='full'
-                   ,order='AOE')
+                   ,order='original')
 
 
 ```
@@ -98,11 +115,12 @@ corrplot::corrplot(dataCor
 
 ### Correlation with Target
 
-```{r fig.height=20, fig.width=10}
+```{r fig.height=15, fig.width=12}
 summ_fun <- function(x){
   return(rbind(data.frame(y=min(x),label = paste0('avg: ',scales::comma(mean(x),accuracy=0.01)))))
 }
 
+colors = c('#9ecae1','#2171b5')
 p = lapply(numCols 
            ,function(col){
              dt=dataRaw[-NAsRows,]
@@ -113,9 +131,11 @@ p = lapply(numCols
                ggplot2::stat_summary( fun.data=summ_fun,geom='text',color='blue',size=3#,hjust=0
                                       #,position=ggplot2::position_nudge(x=0.2)
                ) +
-               
-               scale_fill_brewer(palette ='Blues') +
-               scale_color_brewer(palette ='Blues')  +
+               #scale_fill_brewer(palette ='Blues',direction = 1) +
+               #scale_color_brewer(palette ='Blues')  +
+               scale_fill_manual(values = colors)+
+               scale_color_manual(values = colors) +
+               ggplot2::theme_light()+
                ggplot2::theme(text = element_text(size=10)
                               ,axis.text.x = element_text(angle=90,size=10)
                               ,legend.position = "none"
@@ -123,7 +143,7 @@ p = lapply(numCols
            }
            
 )
-cowplot::plot_grid(plotlist = p,nrow = ceiling(length(numCols)/5),ncol =5 , label_size=2)
+cowplot::plot_grid(plotlist = p,nrow = ceiling(length(numCols)/7),ncol =7 , label_size=2)
 
 ```
 
@@ -132,15 +152,25 @@ cowplot::plot_grid(plotlist = p,nrow = ceiling(length(numCols)/5),ncol =5 , labe
 ```{r fig.height=20, fig.width=10}
 
 textCols = colnames(dataRaw)[which(lapply(dataRaw,class)!='numeric')]
+textCols = textCols[textCols != 'y']
+textCols
+```
+```{r}
+sapply(textCols,function(x)sort(unique(dataRaw[[x]])))
 ```
 
 ### Checking Missing Values
 
 ```{r}
+Blanks = sapply(textCols,function(col){sum(dataRaw[[col]]=='')})
+print(Blanks)
+BlanksRowsText = unique(unlist(lapply(textCols,function(col){which(dataRaw[[col]]=='')})))
+message('Total Blanks records: ',length(BlanksRowsText))
 NAs = sapply(textCols,function(col){sum(is.na(dataRaw[[col]]))})
 print(NAs)
 NAsRowsText = unique(unlist(lapply(textCols,function(col){which(is.na(dataRaw[[col]]))})))
-print(length(NAsRowsText))
+message('Total NA records: ',length(NAsRowsText))
+
 NAsRows = c(NAsRows,NAsRowsText)
 ```
 ### Count of Records
@@ -154,7 +184,7 @@ uniqueCounts
 
 ### Variables Distribution
 
-```{r fig.height=10, fig.width=10}
+```{r fig.height=4, fig.width=10}
 
 
 p = lapply(textCols
@@ -166,16 +196,18 @@ p = lapply(textCols
                ggplot2::geom_bar() +
                geom_text(stat='count', aes(
                  #label=comma(..count..,accuracy=1)
-                 label=paste0(comma(..count..,accuracy=1),'\n(',percent(..count../sum(..count..),accuracy=1),')')
-               ), size=3,vjust=1 ) +
-               #scale_fill_brewer(palette ='Blues') +
+                 y=min(..count..)
+                 ,label=paste0(comma(..count..,accuracy=1),' (',percent(..count../sum(..count..),accuracy=1),')')
+               ), size=3,hjust=0 ) +
+               ggplot2::geom_blank(stat='count',aes(x=1,y=..count.. *1.2)) +
+               ggplot2::coord_flip()+
                ggplot2::theme(text = element_text(size=10)
                               ,axis.text.x = element_text(angle=90,size=10)
                               ,legend.position = "none")
            }
            
 )
-cowplot::plot_grid(plotlist = p,nrow = ceiling(length(textCols)/2),ncol =2 , label_size=5)
+cowplot::plot_grid(plotlist = p,nrow = ceiling(length(textCols)/3),ncol =3 , label_size=5)
 
 ```
 
@@ -185,6 +217,7 @@ cowplot::plot_grid(plotlist = p,nrow = ceiling(length(textCols)/2),ncol =2 , lab
 
 ```{r fig.height=10, fig.width=10}
 
+colors = c('#9ecae1','#2171b5')
 p = lapply(textCols[textCols!='y']
            ,function(col){
              dt=dataRaw %>%
@@ -197,26 +230,26 @@ p = lapply(textCols[textCols!='y']
                ungroup() %>%
                mutate(col=forcats::fct_reorder(factor(col),tot))
              
-             Ncol = '#2b8cbe'
-             Ycol = '#a6bddb'
+             Ncol = colors[2]#'#2b8cbe'
+             Ycol = colors[1]#'#a6bddb'
              ynote = levels(dt$col)[ceiling(length(levels(dt$col))/2)]
-             note=rbind(data.frame(y=ynote,x=max(filter(dt,y=='y')$count)
+             note=rbind(data.frame(y=ynote,x=max(filter(dt,y=='1')$count)
                                    ,label='Y = 1',color=Ycol,alpha=1,hjust=0,angle=90)
-                        ,data.frame(y=ynote,x=-max(filter(dt,y=='n')$count)
+                        ,data.frame(y=ynote,x=-max(filter(dt,y=='0')$count)
                                     ,label='Y = 0',color=Ncol,alpha=1,hjust=0,angle=90)
              )
              
-             dtY = filter(dt,y=='y')
-             dtN = filter(dt,y=='n')
+             dtY = filter(dt,y=='1')
+             dtN = filter(dt,y=='0')
              
              p=ggplot(data=dt,aes(y=col,fill=col)) +
-               ggplot2::geom_col(data=dtY,aes(x=count),fill='#2b8cbe')+
+               ggplot2::geom_col(data=dtY,aes(x=count),fill=Ncol)+#'#2b8cbe')+
                ggplot2::geom_text(data=dtY,aes(x=1,label=label),size=3,hjust=-.5)+
-               ggplot2::geom_col(data=dtN,aes(x=-count),fill='#a6bddb') +
+               ggplot2::geom_col(data=dtN,aes(x=-count),fill=Ycol) + #'#a6bddb') +
                ggplot2::geom_text(data=dtN,aes(x=-1,label=label),size=3,hjust=1.5,alpha=0.7)+
-               ggplot2::geom_text(data=note,aes(x=x,y=y,label=label,alpha=alpha,hjust=hjust,angle=angle)
-                                  ,inherit.aes = F,size=5) +
+               ggplot2::geom_text(data=note,aes(x=x,y=y,label=label,alpha=alpha,hjust=hjust,angle=angle),inherit.aes = F,size=5) +
                ggplot2::ggtitle(paste0('Y=0 vs. Y=1 for column ', col)) +
+               ggplot2::theme_light()+
                ggplot2::theme(text = element_text(size=10)
                               ,axis.text.x = element_text(angle=90,size=10)
                               ,legend.position = "none")
@@ -235,7 +268,10 @@ cowplot::plot_grid(plotlist = p,nrow = 2,ncol =2 , label_size=2)
 ```{r}
 # Removing Nas
 data = dataRaw[-NAsRows,] %>%
-  select(-c(x6,x41))
+  select(-c(x6,x41)) %>%
+  mutate(y=ifelse(y=='1','y','n'))
+
+head(data$y)
 
 
 ```
