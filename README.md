@@ -20,3 +20,26 @@ Repository for DS7333 - Quantifying the World @ Southern Methodist University (F
 
 * Built a Time Series model to predict the extent of flu outbreak in the US
 * Training Data used from [FluNet](https://www.who.int/influenza/gisrs_laboratory/flunet/en/)
+
+# Case Study 5: Missing Data Analysis
+
+* Evaluate imputation tecniques for:
+   * Missing Completely at Random (MCAR)
+   * Missing at Random (MAR)
+   * Missing Not at Random (MNAR)
+* Imputation methods evaluate were: Median and KNN Imputation
+   
+# Case Study 6: Deep Neural Network
+
+* Recreate the neural network in the [Searching for Exotic Particles in High-Energy Physics with Deep Learning](https://archive.ics.uci.edu/ml/datasets/HIGGS) paper
+* Upgrade the code to TensorFlow 2.0
+* Made recomendation to improve the model performance
+
+# Case Study 7: Binary Classification
+
+* Created and tuned a Binary Classifier using AutoML (PyCaret)
+* Evaluated using a custom metric
+* Evaluated global and local model explainability using Shapley
+
+
+   
